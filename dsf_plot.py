@@ -9,7 +9,8 @@ from scipy.signal import find_peaks
 from scipy.optimize import curve_fit 
 import matplotlib.cm as cm
 from functools import partial
-from hillfit import HillFit
+from matplotlib.patches import Patch
+from matplotlib.colors import Normalize
 
 def main():
     parser = argparse.ArgumentParser(
@@ -17,15 +18,100 @@ def main():
     )
     parser.add_argument('-d', '--directory', type=str, required=True, help="Path to the directory containing the data files")
     parser.add_argument('-o', '--output', type=str, default="tm_values.csv", help="Output CSV file for Tm values")
+    parser.add_argument('-m', '--metals', type=str, required=True, help="trans or lans")
     args = parser.parse_args()
 
     raw_file, derivative_file = find_files(args.directory)
     raw_data = load_data(raw_file)
     derivative_data = load_data(derivative_file)
+    metals, concentrations = metals_and_concentrations(args.metals)
+    tm_df = plot_data(raw_data, derivative_data)
+    tm_df.to_csv(args.output, index=False)
+    metals = plot_tm_scatter(tm_df, metals, concentrations, True)
+    plot_tm_bar(metals)
 
+def metals_and_concentrations(metal_type):
+    if metal_type == "trans":
+        metals = {
+            "Li$^+$": ["A1", "A2", "A3", "A4", "A5"],
+            "Na$^+$": ["B1", "B2", "B3", "B4", "B5"],
+            "Mg$^{2+}$": ["C1", "C2", "C3", "C4", "C5"],
+            "Al$^{3+}$": ["D1", "D2", "D3", "D4", "D5"],
+            "K$^+$": ["E1", "E2", "E3", "E4", "E5"],
+            "Ca$^{2+}$": ["F1", "F2", "F3", "F4", "F5"],
+            "Mn$^{2+}$": ["G1", "G2", "G3", "G4", "G5"],
+            "Fe$^{3+}$": ["H1", "H2", "H3", "H4", "H5"],
+            "Co$^{2+}$": ["A6", "A7", "A8", "A9", "A10"],
+            "Ni$^{2+}$": ["B6", "B7", "B8", "B9", "B10"],
+            "Cu$^{2+}$": ["C6", "C7", "C8", "C9", "C10"],
+            "Zn$^{2+}$": ["D6", "D7", "D8", "D9", "D10"],
+            "La$^{3+}$": ["E6", "E7", "E8", "E9", "E10"],
+            "Pr$^{3+}$": ["F6", "F7", "F8", "F9", "F10"],
+            "Nd$^{3+}$": ["G6", "G7", "G8", "G9", "G10"],
+            "HCl": ["H6", "H7", "H8", "H9", "H10"],
+            "WT": ["A11", "B11", "C11", "D11"],
+            "EDTA": ["E11", "F11", "G11", "H11"]}
+    elif metal_type == "lans":
+            metals = {
+            "La$^{3+}$": ["A1", "A2", "A3", "A4", "A5"],
+            "Ce$^{3+}$": ["B1", "B2", "B3", "B4", "B5"],
+            "Pr$^{3+}$": ["C1", "C2", "C3", "C4", "C5"],
+            "Nd$^{3+}$": ["D1", "D2", "D3", "D4", "D5"],
+            "Sm$^{3+}$": ["E1", "E2", "E3", "E4", "E5"],
+            "Eu$^{3+}$": ["F1", "F2", "F3", "F4", "F5"],
+            "Gd$^{3+}$": ["G1", "G2", "G3", "G4", "G5"],
+            "Tb$^{3+}$": ["H1", "H2", "H3", "H4", "H5"],
+            "Dy$^{3+}$": ["A6", "A7", "A8", "A9", "A10"],
+            "Ho$^{3+}$": ["B6", "B7", "B8", "B9", "B10"],
+            "Er$^{3+}$": ["C6", "C7", "C8", "C9", "C10"],
+            "Tm$^{3+}$": ["D6", "D7", "D8", "D9", "D10"],
+            "Yb$^{3+}$": ["E6", "E7", "E8", "E9", "E10"],
+            "Lu$^{3+}$": ["F6", "F7", "F8", "F9", "F10"],
+            "Fe$^{3+}$": ["G6", "G7", "G8", "G9", "G10"],
+            "HCl": ["H6", "H7", "H8", "H9", "H10"],
+            "WT": ["A11", "B11", "C11", "D11"],
+            "EDTA": ["E11", "F11", "G11", "H11"]}
+    concentrations = [446, 89.2, 17.84, 3.57, 0.71]  # µM
+    return metals, concentrations
+
+def find_files(directory):
+    raw_file = None
+    derivative_file = None
+    for file in os.listdir(directory):
+        if file.endswith(".csv"):
+            if "amplification" in file.lower():
+                raw_file = os.path.join(directory, file)
+            elif "derivative" in file.lower():
+                derivative_file = os.path.join(directory, file)
+    if not raw_file or not derivative_file:
+        print("Error: Could not find both raw fluorescence and derivative files in the directory.")
+        exit(1)
+    return raw_file, derivative_file
+
+def load_data(file_path):
+    try:
+        data = pd.read_csv(file_path)
+        if 'Unnamed: 0' in data.columns:
+            data = data.drop(columns=['Unnamed: 0'])
+        return data
+    except Exception as e:
+        print(f"Error loading data from {file_path}: {e}")
+        exit(1)
+
+def find_tm(temperature, derivative):
+    peak_height_mult = 0.5
+    derivative_std = np.nanstd(derivative)
+    height = peak_height_mult * derivative_std
+    peaks, properties = find_peaks(derivative, height=None, distance=None, threshold=None, prominence=height)
+    if len(peaks) == 0:
+        return None
+    most_prominent_index = np.argmax(properties['prominences'])
+    most_prominent_peak = peaks[most_prominent_index]
+    return temperature[most_prominent_peak]
+
+def plot_data(raw_data, derivative_data):
     fluorescence_columns = [f"{chr(i)}{j}" for i in range(65, 73) for j in range(1, 13)]
     tm_dict = {"Well": [], "Tm": []}
-
     fig, axes = plt.subplots(8, 12, figsize=(12, 8))
     axes = axes.flatten()
 
@@ -48,10 +134,8 @@ def main():
 
         tm_dict["Well"].append(col)
         tm_dict["Tm"].append(tms)
-
         ax = axes[i]
         ax2 = ax.twinx()
-
         ax.plot(temperature, raw_fluorescence, color='blue', label='Raw Data')
         ax2.plot(temperature, derivative, color='orange', label='Negative Derivative')
 
@@ -64,7 +148,6 @@ def main():
         ax2.grid(False)
         ax2.set_xticks([])
         ax2.set_yticks([])
-
         row_label = i // 12
         col_label = i % 12
 
@@ -84,8 +167,7 @@ def main():
     plt.show()
 
     tm_df = pd.DataFrame(tm_dict)
-    tm_df.to_csv(args.output, index=False)
-    plot_tm_scatter(tm_df)
+    return tm_df
 
 def find_files(directory):
     raw_file = None
@@ -118,56 +200,17 @@ def find_tm(temperature, derivative):
     peak_height_mult = 0.5
     derivative_std = np.nanstd(derivative)
     height = peak_height_mult * derivative_std
-
     peaks, properties = find_peaks(derivative, height=None, distance=None, threshold=None, prominence=height)
-
     if len(peaks) == 0:
         return None
-
     most_prominent_index = np.argmax(properties['prominences'])
     most_prominent_peak = peaks[most_prominent_index]
-
     return temperature[most_prominent_peak]
 
-def hill_eq(concentration, ymax=None, K=None, n=None, ymin=None):
-    """
-    Hill equation with either ymin or ymax fixed.
-    """
-    if ymin is not None:  # Binding goes up
-        return ymin + (ymax - ymin) * (concentration**n) / (K**n + concentration**n)
-    elif ymax is not None:  # Binding goes down
-        return ymax - (ymax - ymin) * (concentration**n) / (K**n + concentration**n)
+def hill_eq(concentration, ymin, ymax, K, n):
+    return ymin + (ymax - ymin) * (concentration**n) / (K**n + concentration**n)
 
-def plot_tm_scatter(tm_df):
-    concentrations = [446, 89.2, 17.84, 3.57, 0.71]  # µM
-    kd_summary = []
-    metals = {
-        "Li$^+$": ["A1", "A2", "A3", "A4", "A5"],
-        "Na$^+$": ["B1", "B2", "B3", "B4", "B5"],
-        "Mg$^{2+}$": ["C1", "C2", "C3", "C4", "C5"],
-        "Al$^{3+}$": ["D1", "D2", "D3", "D4", "D5"],
-        "K$^+$": ["E1", "E2", "E3", "E4", "E5"],
-        "Ca$^{2+}$": ["F1", "F2", "F3", "F4", "F5"],
-        "Mn$^{2+}$": ["G1", "G2", "G3", "G4", "G5"],
-        "Fe$^{3+}$": ["H1", "H2", "H3", "H4", "H5"],
-        "Co$^{2+}$": ["A6", "A7", "A8", "A9", "A10"],
-        "Ni$^{2+}$": ["B6", "B7", "B8", "B9", "B10"],
-        "Cu$^{2+}$": ["C6", "C7", "C8", "C9", "C10"],
-        "Zn$^{2+}$": ["D6", "D7", "D8", "D9", "D10"],
-        "La$^{3+}$": ["E6", "E7", "E8", "E9", "E10"],
-        "Pr$^{3+}$": ["F6", "F7", "F8", "F9", "F10"],
-        "Nd$^{3+}$": ["G6", "G7", "G8", "G9", "G10"],
-        "HCl": ["H6", "H7", "H8", "H9", "H10"],
-        "WT": ["A11", "B11", "C11", "D11"],
-        "EDTA": ["E11", "F11", "G11", "H11"],
-    }
-
-    wt_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["WT"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
-    edta_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["EDTA"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
-    wt_avg_tm = np.mean(wt_tm_values) if wt_tm_values else None
-    edta_avg_tm = np.mean(edta_tm_values) if edta_tm_values else None
-
-    # Remove highest, if HCl effect
+def hcl_effect(tm_df, metals, concentrations, exclude_high):
     hcl_wells = metals["HCl"]
     hcl_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in hcl_wells and pd.notna(row["Tm"])]
     if abs(hcl_tm_values[0] - sum(hcl_tm_values[1:]) / len(hcl_tm_values[1:])) > 1:
@@ -175,10 +218,68 @@ def plot_tm_scatter(tm_df):
         for metal, wells in metals.items():
             if metal not in ["WT", "EDTA", "HCl"]:
                 metals[metal] = wells[1:]
+    elif exclude_high is True:
+        concentrations = concentrations[1:]
+        for metal, wells in metals.items():
+            if metal not in ["WT", "EDTA", "HCl"]:
+                metals[metal] = wells[1:]
 
+    return metals, concentrations
+
+def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm):
+    if len(filtered_tm_values) >= 4:
+        filtered_tm_values = np.array(filtered_tm_values)
+        try:
+            p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
+            bounds = ([wt_avg_tm - 1, 0, 0, -1], [wt_avg_tm + 1, 125, 1000, 1])
+            popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
+                filtered_concentrations,
+                filtered_tm_values,
+                p0=p0,
+                bounds=bounds)
+            ymin, ymax, K, n = popt
+            delta_tm = ymax - wt_avg_tm
+            
+            if np.sign(ymin - ymax):
+                p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
+                bounds = ([0, wt_avg_tm - 1, 0, -1], [125, wt_avg_tm + 1, 1000, 1])
+                popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
+                    filtered_concentrations,
+                    filtered_tm_values,
+                    p0=p0,
+                    bounds=bounds)
+                ymin, ymax, K, n = popt
+                delta_tm = ymin - wt_avg_tm
+
+            fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
+            fit_y = hill_eq(fit_x, ymin, ymax, K, n)
+            ax.plot(fit_x, fit_y, color='gray') 
+            if abs(delta_tm) > 1:
+                kd_summary.append(f"{metal}: Kd = {K:.2f} µM, ΔTm = {delta_tm:.2f} °C")
+                metals[metal].extend([round(K, 2), round(delta_tm, 2)])
+            else:
+                kd_summary.append(f"{metal}: N.B.")
+                metals[metal].extend(["N.B.", 0])
+        except RuntimeError:
+            print(f"Could not fit Hill equation for {metal}")
+            kd_summary.append(f"{metal}: N.B.")
+            metals[metal].extend(["N.B.", 0])
+    else:
+        print(f"Not enough data points to fit Hill equation for {metal}")
+        kd_summary.append(f"{metal}: N.B.")
+        metals[metal].extend(["N.B.", 0])
+    return metals, ax, kd_summary
+
+def plot_tm_scatter(tm_df, metals, concentrations, exclude_high):
+    kd_summary = []
+    wt_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["WT"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
+    edta_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["EDTA"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
+    wt_avg_tm = np.mean(wt_tm_values) if wt_tm_values else None
+    edta_avg_tm = np.mean(edta_tm_values) if edta_tm_values else None
+    metals, concentrations = hcl_effect(tm_df, metals, concentrations, exclude_high)
     fig, ax = plt.subplots(figsize=(10, 6))
     kd_summary = []
-
+    
     for metal, wells in metals.items():
         if metal in ["WT", "EDTA", "HCl"]: 
             continue
@@ -186,47 +287,8 @@ def plot_tm_scatter(tm_df):
         tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in wells and pd.notna(row["Tm"])]
         filtered_concentrations = [conc for conc, tm in zip(concentrations, tm_values) if tm != 0]
         filtered_tm_values = [tm for tm in tm_values if tm != 0]
-
-        # Plot scatter points
         ax.scatter(filtered_concentrations, filtered_tm_values, label=metal)
-        if len(filtered_tm_values) >= 4:  # Ensure at least 4 data points for fitting
-            filtered_tm_values = np.array(filtered_tm_values)
-            try:
-                # Try fitting with ymin = wt_avg_tm (binding goes up)
-                try:
-                    popt, _ = curve_fit(
-                        lambda concentration, ymax, K, n: hill_eq(concentration, ymin=wt_avg_tm, ymax=ymax, K=K, n=n),
-                        filtered_concentrations,
-                        filtered_tm_values,
-                        p0=[max(filtered_tm_values), np.median(filtered_concentrations), 1.0]  # Initial guesses
-                    )
-                    ymax, K, n = popt
-                    ymin = wt_avg_tm  # Assign ymin explicitly
-                    delta_tm = ymax - wt_avg_tm
-                except RuntimeError:
-                    # If the first fit fails, try fitting with ymax = wt_avg_tm (binding goes down)
-                    popt, _ = curve_fit(
-                        lambda concentration, ymin, K, n: hill_eq(concentration, ymin=ymin, ymax=wt_avg_tm, K=K, n=n),
-                        filtered_concentrations,
-                        filtered_tm_values,
-                        p0=[min(filtered_tm_values), np.median(filtered_concentrations), 1.0]  # Initial guesses
-                    )
-                    ymin, K, n = popt
-                    ymax = wt_avg_tm  # Assign ymax explicitly
-                    delta_tm = wt_avg_tm - ymin
-
-                # Generate the fit curve
-                fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
-                fit_y = hill_eq(fit_x, ymin=ymin, ymax=ymax, K=K, n=n)
-                ax.plot(fit_x, fit_y, color='gray')  # No legend entry for fit line
-                kd_summary.append(f"{metal}: Kd = {K:.2f} µM, ΔTm = {delta_tm:.2f} °C")
-            except RuntimeError:
-                print(f"Could not fit Hill equation for {metal}")
-                kd_summary.append(f"{metal}: N.B.")  # No Binding
-        else:
-            print(f"Not enough data points to fit Hill equation for {metal}")
-            kd_summary.append(f"{metal}: N.B.")  # No Binding
-
+        metals, ax, kd_summary = fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm)
 
     ax.axhline(wt_avg_tm, color='red', linestyle='-', label="WT")
     kd_summary.append(f"WT: {wt_avg_tm:.2f} °C")
@@ -234,13 +296,59 @@ def plot_tm_scatter(tm_df):
     kd_summary.append(f"EDTA: {edta_avg_tm:.2f} °C")
     ax.set_xlabel("Concentration (µM)")
     ax.set_ylabel("Tm (°C)")
+    ax.set_ylim(25, 100)
     ax.set_title("Tm Scatter Plot with Hill Equation Fit")
-
     summary_text = "\n".join(kd_summary)
     ax.text(1.3, 0.5, summary_text, transform=ax.transAxes, fontsize=10, verticalalignment='center',
             bbox=dict(boxstyle="round", facecolor="white", edgecolor="black"))
     ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5))
     plt.tight_layout()
+    plt.show()
+    return metals
+
+def plot_tm_bar(metals_data):
+    metals = []
+    Kd_values = [] 
+    ΔTm = [] 
+    for metal in metals_data:
+        if metal in ["WT", "EDTA", "HCl"]: 
+            continue
+        metals.append(metal)
+        try:
+            Kd_values.append(float(metals_data[metal][-2]))
+        except ValueError:
+            Kd_values.append(10000)
+        ΔTm.append(float(metals_data[metal][-1]))
+
+    inv_Kd = [1/kd for kd in Kd_values]
+    norm = Normalize(vmin=-10, vmax=10)
+    colors = [plt.cm.coolwarm(norm(tm)) for tm in ΔTm]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars = ax.bar(metals, inv_Kd, color=colors, edgecolor='black')
+    ax.set_ylabel('Binding Affinity (1/Kd)', fontsize=12)
+    ax.set_xlabel('Metal Ion', fontsize=12)
+    ax.set_title('Metal Binding Affinities and Stability Effects', pad=20)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    for bar, kd in zip(bars, Kd_values):
+        if kd < 10000:
+            height = bar.get_height()
+            if height < 0.02:
+                new_height = 0.05
+            elif height < 0.5:
+                new_height = height + 0.05
+            else: 
+                new_height = height - 0.4
+            ax.text(bar.get_x() + bar.get_width()/2, new_height,
+                f'{kd} μM', ha='center', va='bottom', fontsize=10, rotation=90)
+
+    # Add ΔTm color legend
+    sm = plt.cm.ScalarMappable(cmap='coolwarm', norm=norm)
+    sm.set_array([]) 
+    cbar = plt.colorbar(sm, ax=ax, pad=0.02)
+    cbar.set_label('ΔTm (°C)', fontsize=12)
+
     plt.show()
 
 if __name__ == '__main__':
