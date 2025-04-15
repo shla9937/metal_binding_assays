@@ -230,36 +230,41 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
     if len(filtered_tm_values) >= 4:
         filtered_tm_values = np.array(filtered_tm_values)
         try:
-            p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
-            bounds = ([wt_avg_tm - 1, 0, 0, -1], [wt_avg_tm + 1, 125, 1000, 1])
-            popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
-                filtered_concentrations,
-                filtered_tm_values,
-                p0=p0,
-                bounds=bounds)
-            ymin, ymax, K, n = popt
-            delta_tm = ymax - wt_avg_tm
-            
-            if np.sign(ymin - ymax):
-                p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
-                bounds = ([0, wt_avg_tm - 1, 0, -1], [125, wt_avg_tm + 1, 1000, 1])
-                popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
-                    filtered_concentrations,
-                    filtered_tm_values,
-                    p0=p0,
-                    bounds=bounds)
-                ymin, ymax, K, n = popt
-                delta_tm = ymin - wt_avg_tm
-
-            fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
-            fit_y = hill_eq(fit_x, ymin, ymax, K, n)
-            ax.plot(fit_x, fit_y, color='gray') 
-            if abs(delta_tm) > 1:
-                kd_summary.append(f"{metal}: Kd = {K:.2f} µM, ΔTm = {delta_tm:.2f} °C")
-                metals[metal].extend([round(K, 2), round(delta_tm, 2)])
+            if abs(wt_avg_tm - np.average(filtered_tm_values)) > 1:
+                if (wt_avg_tm - np.average(filtered_tm_values)) > 1:
+                    p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
+                    bounds = ([wt_avg_tm - 1, 0, 0, -1], [wt_avg_tm + 1, 125, 1000, 1])
+                    popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
+                        filtered_concentrations,
+                        filtered_tm_values,
+                        p0=p0,
+                        bounds=bounds)
+                    ymin, ymax, K, n = popt
+                    delta_tm = ymax - wt_avg_tm
+                else:
+                    p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
+                    bounds = ([0, wt_avg_tm - 1, 0, -1], [125, wt_avg_tm + 1, 1000, 1])
+                    popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
+                        filtered_concentrations,
+                        filtered_tm_values,
+                        p0=p0,
+                        bounds=bounds)
+                    ymin, ymax, K, n = popt
+                    delta_tm = ymin - wt_avg_tm
+                
+                fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
+                fit_y = hill_eq(fit_x, ymin, ymax, K, n)
+                ax.plot(fit_x, fit_y, color='gray') 
+                
+                if abs(delta_tm) > 1:
+                    kd_summary.append(f"{metal}: Kd = {K:.2f} µM, ΔTm = {delta_tm:.2f} °C")
+                    metals[metal].extend([round(K, 2), round(delta_tm, 2)])
+                else:
+                    kd_summary.append(f"{metal}: N.B.")
+                    metals[metal].extend(["N.B.", 0])
             else:
-                kd_summary.append(f"{metal}: N.B.")
-                metals[metal].extend(["N.B.", 0])
+                    kd_summary.append(f"{metal}: N.B.")
+                    metals[metal].extend(["N.B.", 0])
         except RuntimeError:
             print(f"Could not fit Hill equation for {metal}")
             kd_summary.append(f"{metal}: N.B.")
@@ -327,6 +332,7 @@ def plot_tm_bar(metals_data):
     fig, ax = plt.subplots(figsize=(8, 6))
     bars = ax.bar(metals, inv_Kd, color=colors, edgecolor='black')
     ax.set_ylabel('Binding Affinity (1/Kd)', fontsize=12)
+    ax.set_yscale('log')
     ax.set_xlabel('Metal Ion', fontsize=12)
     ax.set_title('Metal Binding Affinities and Stability Effects', pad=20)
     ax.spines['top'].set_visible(False)
