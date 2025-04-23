@@ -176,23 +176,6 @@ def hill_eq(concentration, ymin, ymax, K, n):
     return ymin + (ymax - ymin) * (concentration**n) / (K**n + concentration**n)
 
 def hcl_effect(tm_df, metals, concentrations, exclude_high):
-    # hcl_wells = metals["HCl"]
-    # hcl_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in hcl_wells and pd.notna(row["Tm"])]
-    # if exclude_high is False:
-    #     None
-    #     for well in hcl_wells:
-    #         print(well)
-    #         if abs(hcl_tm_values[0] - sum(hcl_tm_values[1:]) / len(hcl_tm_values[1:])) > 1:
-    #             concentrations = concentrations[1:]
-    #             for metal, wells in metals.items():
-    #                 if metal not in ["WT", "EDTA", "HCl"]:
-    #                     metals[metal] = wells[1:]
-    #             print("Excluding highest point")
-    # elif exclude_high is True:
-    #     concentrations = concentrations[1:]
-    #     for metal, wells in metals.items():
-    #         if metal not in ["WT", "EDTA", "HCl"]:
-    #             metals[metal] = wells[1:]
     concentrations = concentrations[3:]
     for metal, wells in metals.items():
         if metal not in ["WT", "EDTA", "HCl", "Blank"]:
@@ -201,53 +184,44 @@ def hcl_effect(tm_df, metals, concentrations, exclude_high):
     return metals, concentrations
 
 def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm):
-    if len(filtered_tm_values) >= 4:
-        filtered_tm_values = np.array(filtered_tm_values)
-        try:
-            if (wt_avg_tm - np.average(filtered_tm_values)) > 1:
-                p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
-                bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
-                popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
-                                    filtered_concentrations,
-                                    filtered_tm_values,
-                                    p0=p0,
-                                    bounds=bounds)
-                ymin, ymax, K, n = popt
-                delta_tm = ymax - wt_avg_tm
-            else:
-                p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
-                bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
-                popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
-                                    filtered_concentrations,
-                                    filtered_tm_values,
-                                    p0=p0,
-                                    bounds=bounds)
-                ymin, ymax, K, n = popt
-                delta_tm = ymin - wt_avg_tm
+    filtered_tm_values = np.array(filtered_tm_values)
+    try:
+        if (wt_avg_tm - np.average(filtered_tm_values)) > 1:
+            p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
+            bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
+            popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
+                                filtered_concentrations,
+                                filtered_tm_values,
+                                p0=p0,
+                                bounds=bounds)
+            ymin, ymax, K, n = popt
+            delta_tm = ymax - wt_avg_tm
+        else:
+            p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
+            bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
+            popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
+                                filtered_concentrations,
+                                filtered_tm_values,
+                                p0=p0,
+                                bounds=bounds)
+            ymin, ymax, K, n = popt
+            delta_tm = ymin - wt_avg_tm
 
-            # Generate the fit curve
-            fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
-            fit_y = hill_eq(fit_x, ymin, ymax, K, n)
-            ax.plot(fit_x, fit_y, color='gray')
+        # Generate the fit curve
+        fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
+        fit_y = hill_eq(fit_x, ymin, ymax, K, n)
+        ax.plot(fit_x, fit_y, color='gray')
 
-            # Calculate R²
-            predicted_tm_values = hill_eq(filtered_concentrations, ymin, ymax, K, n)
-            ss_res = np.sum((filtered_tm_values - predicted_tm_values) ** 2)
-            ss_tot = np.sum((filtered_tm_values - np.mean(filtered_tm_values)) ** 2)
-            r_squared = 1 - (ss_res / ss_tot)
+        # Calculate R²
+        predicted_tm_values = hill_eq(filtered_concentrations, ymin, ymax, K, n)
+        ss_res = np.sum((filtered_tm_values - predicted_tm_values) ** 2)
+        ss_tot = np.sum((filtered_tm_values - np.mean(filtered_tm_values)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot)
+        kd_summary.append(f"{metal}: Kd={K:.2f}µM, ΔTm={delta_tm:.2f}°C, R²={r_squared:.2f}")
+        metals[metal].extend([round(K, 2), round(delta_tm, 2), round(r_squared, 2)])
 
-            if abs(delta_tm) > 1:
-                kd_summary.append(f"{metal}: Kd={K:.2f}µM, ΔTm={delta_tm:.2f}°C, R²={r_squared:.2f}")
-                metals[metal].extend([round(K, 2), round(delta_tm, 2), round(r_squared, 2)])
-            else:
-                kd_summary.append(f"{metal}: N.B.")
-                metals[metal].extend(["N.B.", 0, 0])
-        except RuntimeError:
-            print(f"Could not fit Hill equation for {metal}")
-            kd_summary.append(f"{metal}: N.B.")
-            metals[metal].extend(["N.B.", 0, 0])
-    else:
-        print(f"Not enough data points to fit Hill equation for {metal}")
+    except RuntimeError:
+        print(f"Could not fit Hill equation for {metal}")
         kd_summary.append(f"{metal}: N.B.")
         metals[metal].extend(["N.B.", 0, 0])
     return metals, ax, kd_summary
