@@ -186,7 +186,7 @@ def hcl_effect(tm_df, metals, concentrations, exclude_high):
 def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm):
     filtered_tm_values = np.array(filtered_tm_values)
     try:
-        if (wt_avg_tm - np.average(filtered_tm_values)) > 1:
+        if (wt_avg_tm - np.average(filtered_tm_values)) < 0:
             p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
             bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
             popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
@@ -196,6 +196,7 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
                                 bounds=bounds)
             ymin, ymax, K, n = popt
             delta_tm = ymax - wt_avg_tm
+
         else:
             p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
             bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
@@ -206,6 +207,7 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
                                 bounds=bounds)
             ymin, ymax, K, n = popt
             delta_tm = ymin - wt_avg_tm
+            print(metal, ymin)
 
         # Generate the fit curve
         fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
@@ -230,8 +232,8 @@ def plot_tm_scatter(tm_df, metals, concentrations, exclude_high):
     kd_summary = []
     wt_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["WT"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
     edta_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["EDTA"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
-    wt_avg_tm = np.mean(wt_tm_values) if wt_tm_values else None
-    edta_avg_tm = np.mean(edta_tm_values) if edta_tm_values else None
+    wt_avg_tm = np.mean(wt_tm_values)
+    edta_avg_tm = np.mean(edta_tm_values)
     metals, concentrations = hcl_effect(tm_df, metals, concentrations, exclude_high)
     fig, ax = plt.subplots(figsize=(10, 6))
     kd_summary = []
