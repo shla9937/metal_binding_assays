@@ -19,7 +19,8 @@ def main():
     args = parser.parse_args()
 
     metal_df = load_data(args.csvs)
-    metal_df = plot_tm_scatter(metal_df, args.exclude_high)
+    metal_df = plot_tm_scatter(metal_df, args.exclude)
+    print(metal_df)
     # plot_tm_bar(metal_df)
 
 def load_data(csv_files):
@@ -33,11 +34,11 @@ def load_data(csv_files):
 def hill_eq(concentration, ymin, ymax, K, n):
     return ymin + (ymax - ymin) * (concentration**n) / (K**n + concentration**n)
 
-def hcl_effect(tm_df, metals, concentrations, exclude_high):
-    concentrations = concentrations[3:]
+def hcl_effect(tm_df, metals, concentrations, exclude):
+    concentrations = concentrations[exclude:]
     for metal, wells in metals.items():
         if metal not in ["WT", "EDTA", "HCl", "Blank"]:
-            metals[metal] = wells[3:]
+            metals[metal] = wells[exclude:]
     return metals, concentrations
 
 def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm):
@@ -85,40 +86,100 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
         metals[metal].extend(["N.B.", 0, 0])
     return metals, ax, kd_summary
 
-def plot_tm_scatter(metal_df, exclude_high):
-    kd_summary = []
-    wt_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["WT"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
-    edta_tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in metals["EDTA"] and pd.notna(row["Tm"]) and row["Tm"] != 0]
-    wt_avg_tm = np.mean(wt_tm_values)
-    edta_avg_tm = np.mean(edta_tm_values)
-    metals, concentrations = hcl_effect(tm_df, metals, concentrations, exclude_high)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    kd_summary = []
+def plot_tm_scatter(metal_df, exclude):
+    wt_avg_tm = metal_df.loc['WT'].mean(skipna=True)
+    edta_avg_tm = metal_df.loc['EDTA'].mean(skipna=True)
+    metal_df.loc['Kd'] = np.nan
+    metal_df.loc['Delta_Tm'] = np.nan
+    metal_df.loc['R2'] = np.nan
     
-    for metal, wells in metals.items():
-        if metal in ["WT", "EDTA", "HCl", "Blank"]: 
-            continue
+    # Create figure with two subplots
+    fig = plt.figure(figsize=(6, 4))
+    # Create a gridspec to control subplot sizes
+    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1])
+    
+    # Create main plot and text subplot
+    ax = fig.add_subplot(gs[0])  # Main plot takes top 3/4
+    ax_text = fig.add_subplot(gs[1])  # Text area takes bottom 1/4
+    
+    kd_summary = []
+    concentrations = metal_df.index[:-5].astype(float) 
+    concentrations = concentrations[exclude:]
 
-        tm_values = [row["Tm"] for _, row in tm_df.iterrows() if row["Well"] in wells and pd.notna(row["Tm"])]
-        filtered_concentrations = [conc for conc, tm in zip(concentrations, tm_values) if tm != 0]
-        filtered_tm_values = [tm for tm in tm_values if tm != 0]
-        ax.scatter(filtered_concentrations, filtered_tm_values, label=metal)
-        metals, ax, kd_summary = fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm)
+    for metal in metal_df.columns:
+        tm_values = metal_df[metal].iloc[:-5] 
+        tm_values = tm_values[exclude:]
+        mask = (tm_values != 0) & tm_values.notna()
+        filtered_concentrations = concentrations[mask]
+        filtered_tm_values = tm_values[mask]
+        print(metal)
+        # Determine if stabilizing or destabilizing
+        try:
+            if (wt_avg_tm - filtered_tm_values.mean()) > 1:
+                p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
+                bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
+            else:
+                p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
+                bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
+            
+            # Fit Hill equation
+            popt, _ = curve_fit(lambda x, ymin, ymax, K, n: hill_eq(x, ymin, ymax, K, n),
+                                filtered_concentrations,
+                                filtered_tm_values,
+                                p0=p0,
+                                bounds=bounds)
+            ymin, ymax, K, n = popt
+            
+            # Calculate parameters
+            if (wt_avg_tm - filtered_tm_values.mean()) > 1:
+                delta_tm = ymax - wt_avg_tm
+            else: 
+                ymin - wt_avg_tm
+            
+            # Generate fit curve and calculate R²
+            fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
+            fit_y = hill_eq(fit_x, ymin, ymax, K, n)
+            predicted_y = hill_eq(filtered_concentrations, ymin, ymax, K, n)
+            r_squared = 1 - (np.sum((filtered_tm_values - predicted_y) ** 2) / 
+                            np.sum((filtered_tm_values - filtered_tm_values.mean()) ** 2))
+            
+            # Plot data and fit
+            ax.scatter(filtered_concentrations, filtered_tm_values, label=metal)
+            ax.plot(fit_x, fit_y, color='gray', alpha=0.5)
+            
+            # Store parameters in DataFrame
+            metal_df.loc['Kd', metal] = K
+            metal_df.loc['Delta_Tm', metal] = delta_tm
+            metal_df.loc['R2', metal] = r_squared
+            
+            # Add to summary
+            kd_summary.append(f"{metal}: Kd={K:.2f}µM, ΔTm={delta_tm:.2f}°C, R²={r_squared:.2f}")
+        except RuntimeError:
+            print(f"Could not fit Hill equation for {metal}")
+            kd_summary.append(f"{metal}: N.B.")
 
+    # Add WT and EDTA lines
     ax.axhline(wt_avg_tm, color='red', linestyle='-', label="WT")
-    kd_summary.append(f"WT: {wt_avg_tm:.2f}°C")
     ax.axhline(edta_avg_tm, color='black', linestyle='-', label="EDTA")
-    kd_summary.append(f"EDTA: {edta_avg_tm:.2f}°C")
+    
+    # Customize plot
+    ax.set_xscale('log')
     ax.set_xlabel("Concentration (µM)")
     ax.set_ylabel("Tm (°C)")
-    # ax.set_ylim(25, 100)
     ax.set_title("Tm Scatter Plot with Hill Equation Fit")
+    
+    # Add summary text in its own subplot
     summary_text = "\n".join(kd_summary)
-    ax.text(1.5, 0.5, summary_text, transform=ax.transAxes, fontsize=10, verticalalignment='center',
-            bbox=dict(boxstyle="round", facecolor="white", edgecolor="black"))
+    ax_text.text(0.5, 0.5, summary_text, 
+                ha='center', va='center', 
+                fontsize=10,
+                bbox=dict(boxstyle="round", facecolor="white", edgecolor="black"))
+    ax_text.axis('off')  # Hide axes of text subplot
+    
+    # Adjust layout
     ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5))
     plt.tight_layout()
-    plt.savefig("hill_fit.png", dpi=300)
+    plt.savefig("hill_fit.png", dpi=300, bbox_inches='tight')
     return metal_df
 
 def plot_tm_bar(metals_data):
