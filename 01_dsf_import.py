@@ -137,43 +137,5 @@ def plot_data(raw_data, derivative_data, metal_df, directory):
     print(metal_df)
     return metal_df
 
-def find_files(directory):
-    raw_file = None
-    derivative_file = None
-
-    for file in os.listdir(directory):
-        if file.endswith(".csv"):
-            if "amplification" in file.lower():
-                raw_file = os.path.join(directory, file)
-            elif "derivative" in file.lower():
-                derivative_file = os.path.join(directory, file)
-
-    if not raw_file or not derivative_file:
-        print("Error: Could not find both raw fluorescence and derivative files in the directory.")
-        exit(1)
-
-    return raw_file, derivative_file
-
-def load_data(file_path):
-    try:
-        data = pd.read_csv(file_path)
-        if 'Unnamed: 0' in data.columns:
-            data = data.drop(columns=['Unnamed: 0'])
-        return data
-    except Exception as e:
-        print(f"Error loading data from {file_path}: {e}")
-        exit(1)
-
-def find_tm(temperature, derivative):
-    peak_height_mult = 0.5
-    derivative_std = np.nanstd(derivative)
-    height = peak_height_mult * derivative_std
-    peaks, properties = find_peaks(derivative, height=None, distance=None, threshold=None, prominence=height)
-    if len(peaks) == 0:
-        return None
-    most_prominent_index = np.argmax(properties['prominences'])
-    most_prominent_peak = peaks[most_prominent_index]
-    return temperature[most_prominent_peak]
-
 if __name__ == '__main__':
     main()
