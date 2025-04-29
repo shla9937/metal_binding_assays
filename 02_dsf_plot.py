@@ -20,15 +20,67 @@ def main():
 
     metal_df = load_data(args.csvs)
     metal_df = plot_tm_scatter(metal_df, args.exclude)
-    print(metal_df)
-    # plot_tm_bar(metal_df)
+    
+    plot_tm_bar(metal_df)
 
 def load_data(csv_files):
-    df_list = []
-    for csv_file in csv_files:
-        temp_df = pd.read_csv(csv_file, index_col=0)
-        df_list.append(temp_df)
+    # Load and concatenate files
+    df_list = [pd.read_csv(csv_file, index_col=0) for csv_file in csv_files]
     metal_df = pd.concat(df_list, ignore_index=False, axis=1)
+    
+    # Complete periodic table with atomic numbers
+    atomic_numbers = {
+        'H': 1, 'He': 2,
+        'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10,
+        'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18,
+        'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25, 'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30,
+        'Ga': 31, 'Ge': 32, 'As': 33, 'Se': 34, 'Br': 35, 'Kr': 36,
+        'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41, 'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48,
+        'In': 49, 'Sn': 50, 'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54,
+        'Cs': 55, 'Ba': 56,
+        'La': 57, 'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63,
+        'Gd': 64, 'Tb': 65, 'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71,
+        'Hf': 72, 'Ta': 73, 'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80,
+        'Tl': 81, 'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86,
+        'Fr': 87, 'Ra': 88,
+        'Ac': 89, 'Th': 90, 'Pa': 91, 'U': 92, 'Np': 93, 'Pu': 94, 'Am': 95,
+        'Cm': 96, 'Bk': 97, 'Cf': 98, 'Es': 99, 'Fm': 100, 'Md': 101, 'No': 102, 'Lr': 103,
+        'Rf': 104, 'Db': 105, 'Sg': 106, 'Bh': 107, 'Hs': 108, 'Mt': 109, 'Ds': 110, 'Rg': 111, 'Cn': 112,
+        'Nh': 113, 'Fl': 114, 'Mc': 115, 'Lv': 116, 'Ts': 117, 'Og': 118
+    }
+    
+    def get_oxidation_state(col):
+        """Extract oxidation state from superscript number."""
+        superscript_map = {'¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7}
+        for char in col:
+            if char in superscript_map:
+                return superscript_map[char]
+        return 1 if '⁺' in col else 0
+    
+    def get_metal_symbol(col):
+        """Extract metal symbol from column name."""
+        return ''.join(c for c in col if c.isalpha())
+    
+    def get_sort_key(col):
+        """Create sort key (oxidation_state, atomic_number)."""
+        if '⁺' not in col:
+            return (float('inf'), float('inf'))
+        oxidation_state = get_oxidation_state(col)
+        metal = get_metal_symbol(col)
+        atomic_num = atomic_numbers.get(metal, float('inf'))
+        return (oxidation_state, atomic_num)
+    
+    # Sort metal columns by oxidation state and atomic number
+    metal_cols = [col for col in metal_df.columns if '⁺' in col]
+    sorted_cols = sorted(metal_cols, key=get_sort_key)
+    
+    # Add remaining columns at the end
+    other_cols = [col for col in metal_df.columns if col not in sorted_cols]
+    sorted_cols.extend(other_cols)
+    
+    # Reorder DataFrame columns
+    metal_df = metal_df[sorted_cols]
+    
     return metal_df
 
 def hill_eq(concentration, ymin, ymax, K, n):
@@ -92,15 +144,11 @@ def plot_tm_scatter(metal_df, exclude):
     metal_df.loc['Kd'] = np.nan
     metal_df.loc['Delta_Tm'] = np.nan
     metal_df.loc['R2'] = np.nan
-    
-    # Create figure with two subplots
-    fig = plt.figure(figsize=(6, 4))
-    # Create a gridspec to control subplot sizes
+
+    fig = plt.figure(figsize=(4, 8))
     gs = fig.add_gridspec(2, 1, height_ratios=[3, 1])
-    
-    # Create main plot and text subplot
-    ax = fig.add_subplot(gs[0])  # Main plot takes top 3/4
-    ax_text = fig.add_subplot(gs[1])  # Text area takes bottom 1/4
+    ax = fig.add_subplot(gs[0])
+    ax_text = fig.add_subplot(gs[1])
     
     kd_summary = []
     concentrations = metal_df.index[:-5].astype(float) 
@@ -115,10 +163,11 @@ def plot_tm_scatter(metal_df, exclude):
         print(metal)
         # Determine if stabilizing or destabilizing
         try:
-            if (wt_avg_tm - filtered_tm_values.mean()) > 1:
+            if (filtered_tm_values[-1] - wt_avg_tm) < 0: # destabilizing
+                print("WT avg: "+str(wt_avg_tm)+", mean: "+str(filtered_tm_values.mean()))
                 p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
                 bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
-            else:
+            else: # stabilizing
                 p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
                 bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
             
@@ -131,10 +180,10 @@ def plot_tm_scatter(metal_df, exclude):
             ymin, ymax, K, n = popt
             
             # Calculate parameters
-            if (wt_avg_tm - filtered_tm_values.mean()) > 1:
+            if (filtered_tm_values[-1] - wt_avg_tm) < 0:
                 delta_tm = ymax - wt_avg_tm
             else: 
-                ymin - wt_avg_tm
+                delta_tm = ymin - wt_avg_tm
             
             # Generate fit curve and calculate R²
             fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
@@ -145,7 +194,8 @@ def plot_tm_scatter(metal_df, exclude):
             
             # Plot data and fit
             ax.scatter(filtered_concentrations, filtered_tm_values, label=metal)
-            ax.plot(fit_x, fit_y, color='gray', alpha=0.5)
+            if r_squared > 0.5:
+                ax.plot(fit_x, fit_y, color='gray', alpha=0.5)
             
             # Store parameters in DataFrame
             metal_df.loc['Kd', metal] = K
@@ -182,53 +232,57 @@ def plot_tm_scatter(metal_df, exclude):
     plt.savefig("hill_fit.png", dpi=300, bbox_inches='tight')
     return metal_df
 
-def plot_tm_bar(metals_data):
-    metals = []
-    Kd_values = [] 
-    ΔTm = [] 
-    for metal in metals_data:
-        if metal in ["WT", "EDTA", "HCl", "Blank"]: 
-            continue
-        metals.append(metal)
-        if metals_data[metal][-1] > 0.5:
-            Kd_values.append(float(metals_data[metal][-3]))
-        else:
-            Kd_values.append(10000)
-        ΔTm.append(float(metals_data[metal][-2]))
+def plot_tm_bar(metal_df):
+    """Create bar plot of binding affinities with stability effects shown as colors."""
+    # Filter out control columns and get values
+    metals = [col for col in metal_df.columns if col not in ["WT", "EDTA", "HCl", "Blank"]]
+    Kd_values = metal_df.loc['Kd', metals].values.astype(float)
+    delta_tm = metal_df.loc['Delta_Tm', metals].values.astype(float)
+    r2_values = metal_df.loc['R2', metals].values.astype(float)
     
-    print(Kd_values)
+    # Set high Kd for poor fits
+    poor_fits = (r2_values < 0.5) | (np.abs(delta_tm) < 3)
+    Kd_values[poor_fits] = 10000
+    
+    # Calculate inverse Kd and create color mapping
     inv_Kd = [1/kd for kd in Kd_values]
     norm = Normalize(vmin=-10, vmax=10)
-    colors = [plt.cm.coolwarm(norm(tm)) for tm in ΔTm]
+    colors = [plt.cm.coolwarm(norm(tm)) for tm in delta_tm]
 
+    # Create bar plot
     fig, ax = plt.subplots(figsize=(8, 6))
     bars = ax.bar(metals, inv_Kd, color=colors, edgecolor='black')
+    
+    # Customize plot
     ax.set_ylabel('Binding Affinity (1/Kd)', fontsize=12)
     ax.set_yscale('log')
-    # ax.set_ylim(0, 1)
     ax.set_xlabel('Metal Ion', fontsize=12)
     ax.set_title('Metal Binding Affinities and Stability Effects', pad=20)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    for bar, kd in zip(bars, Kd_values):
-        if kd < 10000:
-            height = bar.get_height()
-            if height < 0.02:
-                new_height = 0.05
-            elif height < 0.5:
-                new_height = height + 0.05
-            else: 
-                new_height = height - 0.4
-            ax.text(bar.get_x() + bar.get_width()/2, new_height,
-                f'{kd} μM', ha='center', va='bottom', fontsize=10, rotation=90)
+    
+    # Add Kd labels to bars
+    # for bar, kd in zip(bars, Kd_values):
+    #     if kd < 10000:
+    #         height = bar.get_height()
+    #         if height < 0.02:
+    #             new_height = 0.05
+    #         elif height < 0.5:
+    #             new_height = height + 0.05
+    #         else:
+    #             new_height = height - 0.4
+    #         ax.text(bar.get_x() + bar.get_width()/2, new_height,
+    #                f'{kd:.1f} μM', ha='center', va='bottom', 
+    #                fontsize=10, rotation=90)
 
     # Add ΔTm color legend
     sm = plt.cm.ScalarMappable(cmap='coolwarm', norm=norm)
-    sm.set_array([]) 
+    sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label('ΔTm (°C)', fontsize=12)
 
-    plt.savefig(directory+"/kd_bar.png", dpi=300)
+    plt.tight_layout()
+    plt.savefig("kd_bar.png", dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
