@@ -163,8 +163,7 @@ def plot_tm_scatter(metal_df, exclude):
         print(metal)
         # Determine if stabilizing or destabilizing
         try:
-            if (filtered_tm_values[-1] - wt_avg_tm) < 0: # destabilizing
-                print("WT avg: "+str(wt_avg_tm)+", mean: "+str(filtered_tm_values.mean()))
+            if (filtered_tm_values.iloc[-1] - wt_avg_tm) < 0: # destabilizing
                 p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
                 bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
             else: # stabilizing
@@ -180,7 +179,7 @@ def plot_tm_scatter(metal_df, exclude):
             ymin, ymax, K, n = popt
             
             # Calculate parameters
-            if (filtered_tm_values[-1] - wt_avg_tm) < 0:
+            if (filtered_tm_values.iloc[-1] - wt_avg_tm) < 0:
                 delta_tm = ymax - wt_avg_tm
             else: 
                 delta_tm = ymin - wt_avg_tm
