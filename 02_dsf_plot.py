@@ -18,11 +18,13 @@ def main():
     parser.add_argument('-t', '--title', type=str, required=True, help="Title")
     args = parser.parse_args()
 
+    output_dir = os.path.join('..', 'outputs', args.title.replace(' ', '_'))
+    os.makedirs(output_dir, exist_ok=True)
     metal_df = load_data(args.csvs)
-    metal_df = plot_tm_scatter(metal_df, args.exclude)
+    metal_df = plot_tm_scatter(metal_df, args.exclude, args.title)
+    plot_tm_bar(metal_df, args.title)
+    metal_df.to_csv(os.path.join(output_dir, f"{args.title}_tm_values.csv"), index=True)
     
-    plot_tm_bar(metal_df)
-
 def load_data(csv_files):
     # Load and concatenate files
     df_list = [pd.read_csv(csv_file, index_col=0) for csv_file in csv_files]
@@ -138,14 +140,14 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
         metals[metal].extend(["N.B.", 0, 0])
     return metals, ax, kd_summary
 
-def plot_tm_scatter(metal_df, exclude):
+def plot_tm_scatter(metal_df, exclude, title):
     wt_avg_tm = metal_df.loc['WT'].mean(skipna=True)
     edta_avg_tm = metal_df.loc['EDTA'].mean(skipna=True)
     metal_df.loc['Kd'] = np.nan
     metal_df.loc['Delta_Tm'] = np.nan
     metal_df.loc['R2'] = np.nan
 
-    fig = plt.figure(figsize=(4, 8))
+    fig = plt.figure(figsize=(8, 8))
     gs = fig.add_gridspec(2, 1, height_ratios=[3, 1])
     ax = fig.add_subplot(gs[0])
     ax_text = fig.add_subplot(gs[1])
@@ -215,7 +217,7 @@ def plot_tm_scatter(metal_df, exclude):
     ax.set_xscale('log')
     ax.set_xlabel("Concentration (µM)")
     ax.set_ylabel("Tm (°C)")
-    ax.set_title("Tm Scatter Plot with Hill Equation Fit")
+    ax.set_title("DSF Hill equation fit for "+title)
     
     # Add summary text in its own subplot
     summary_text = "\n".join(kd_summary)
@@ -228,11 +230,10 @@ def plot_tm_scatter(metal_df, exclude):
     # Adjust layout
     ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5))
     plt.tight_layout()
-    plt.savefig("hill_fit.png", dpi=300, bbox_inches='tight')
+    plt.savefig("../outputs/"+str(title)+"/"+str(title)+"_hill_fit.png", dpi=300, bbox_inches='tight')
     return metal_df
 
-def plot_tm_bar(metal_df):
-    """Create bar plot of binding affinities with stability effects shown as colors."""
+def plot_tm_bar(metal_df, title):
     # Filter out control columns and get values
     metals = [col for col in metal_df.columns if col not in ["WT", "EDTA", "HCl", "Blank"]]
     Kd_values = metal_df.loc['Kd', metals].values.astype(float)
@@ -249,14 +250,14 @@ def plot_tm_bar(metal_df):
     colors = [plt.cm.coolwarm(norm(tm)) for tm in delta_tm]
 
     # Create bar plot
-    fig, ax = plt.subplots(figsize=(8, 6))
-    bars = ax.bar(metals, inv_Kd, color=colors, edgecolor='black')
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(metals, inv_Kd, color=colors, edgecolor='black', width=0.8)
     
     # Customize plot
     ax.set_ylabel('Binding Affinity (1/Kd)', fontsize=12)
     ax.set_yscale('log')
     ax.set_xlabel('Metal Ion', fontsize=12)
-    ax.set_title('Metal Binding Affinities and Stability Effects', pad=20)
+    ax.set_title('DSF Kd and Tm shift for '+title, pad=20)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
@@ -281,7 +282,7 @@ def plot_tm_bar(metal_df):
     cbar.set_label('ΔTm (°C)', fontsize=12)
 
     plt.tight_layout()
-    plt.savefig("kd_bar.png", dpi=300, bbox_inches='tight')
+    plt.savefig("../outputs/"+str(title)+"/"+str(title)+"_kd_tm_bar.png", dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
