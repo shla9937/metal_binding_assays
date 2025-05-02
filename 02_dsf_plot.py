@@ -21,9 +21,9 @@ def main():
     output_dir = os.path.join('..', 'outputs', args.title.replace(' ', '_'))
     os.makedirs(output_dir, exist_ok=True)
     metal_df = load_data(args.csvs)
-    metal_df = plot_tm_scatter(metal_df, args.exclude, args.title)
-    plot_tm_bar(metal_df, args.title)
-    metal_df.to_csv(os.path.join(output_dir, f"{args.title}_tm_values.csv"), index=True)
+    metal_df = plot_tm_scatter(metal_df, args.exclude, args.title, output_dir)
+    plot_tm_bar(metal_df, args.title, output_dir)
+    metal_df.to_csv(os.path.join(output_dir, f"{args.title.replace(' ', '_')}_tm_values.csv"), index=True)
     
 def load_data(csv_files):
     # Load and concatenate files
@@ -140,7 +140,7 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
         metals[metal].extend(["N.B.", 0, 0])
     return metals, ax, kd_summary
 
-def plot_tm_scatter(metal_df, exclude, title):
+def plot_tm_scatter(metal_df, exclude, title, output_dir):
     wt_avg_tm = metal_df.loc['WT'].mean(skipna=True)
     edta_avg_tm = metal_df.loc['EDTA'].mean(skipna=True)
     metal_df.loc['Kd'] = np.nan
@@ -230,10 +230,10 @@ def plot_tm_scatter(metal_df, exclude, title):
     # Adjust layout
     ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5))
     plt.tight_layout()
-    plt.savefig("../outputs/"+str(title)+"/"+str(title)+"_hill_fit.png", dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(output_dir+"/"+title.replace(' ', '_')+"_hill_fit.png"), dpi=300, bbox_inches='tight')
     return metal_df
 
-def plot_tm_bar(metal_df, title):
+def plot_tm_bar(metal_df, title, output_dir):
     # Filter out control columns and get values
     metals = [col for col in metal_df.columns if col not in ["WT", "EDTA", "HCl", "Blank"]]
     Kd_values = metal_df.loc['Kd', metals].values.astype(float)
@@ -282,7 +282,7 @@ def plot_tm_bar(metal_df, title):
     cbar.set_label('ΔTm (°C)', fontsize=12)
 
     plt.tight_layout()
-    plt.savefig("../outputs/"+str(title)+"/"+str(title)+"_kd_tm_bar.png", dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir+"/"+title.replace(' ', '_')+"_kd_tm_bar.png", dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
