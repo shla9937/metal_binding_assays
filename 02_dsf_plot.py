@@ -8,6 +8,7 @@ import argparse
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit 
 from matplotlib.colors import Normalize
+import matplotlib.colors
 
 def main():
     parser = argparse.ArgumentParser(
@@ -30,57 +31,77 @@ def load_data(csv_files):
     df_list = [pd.read_csv(csv_file, index_col=0) for csv_file in csv_files]
     metal_df = pd.concat(df_list, ignore_index=False, axis=1)
     
-    # Complete periodic table with atomic numbers
-    atomic_numbers = {
-        'H': 1, 'He': 2,
-        'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10,
-        'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18,
-        'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25, 'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30,
-        'Ga': 31, 'Ge': 32, 'As': 33, 'Se': 34, 'Br': 35, 'Kr': 36,
-        'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41, 'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48,
-        'In': 49, 'Sn': 50, 'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54,
-        'Cs': 55, 'Ba': 56,
-        'La': 57, 'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63,
-        'Gd': 64, 'Tb': 65, 'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71,
-        'Hf': 72, 'Ta': 73, 'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80,
-        'Tl': 81, 'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86,
-        'Fr': 87, 'Ra': 88,
-        'Ac': 89, 'Th': 90, 'Pa': 91, 'U': 92, 'Np': 93, 'Pu': 94, 'Am': 95,
-        'Cm': 96, 'Bk': 97, 'Cf': 98, 'Es': 99, 'Fm': 100, 'Md': 101, 'No': 102, 'Lr': 103,
-        'Rf': 104, 'Db': 105, 'Sg': 106, 'Bh': 107, 'Hs': 108, 'Mt': 109, 'Ds': 110, 'Rg': 111, 'Cn': 112,
-        'Nh': 113, 'Fl': 114, 'Mc': 115, 'Lv': 116, 'Ts': 117, 'Og': 118
+    # Define base colors for periods
+    period_base_colors = {
+        1: "#56B4E9",  # Light blue
+        2: "#D55E00",  # Red
+        3: "#E69F00",  # Orange
+        4: "#F0E442",  # Yellow
+        5: "#009E73",  # Green
+        6: "#CC79A7",  # Pink
+        7: "#0072B2"   # Dark blue
     }
     
+    # Create color gradients for each period
+    period_elements = {
+        1: ['H', 'He'],
+        2: ['Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne'],
+        3: ['Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar'],
+        4: ['K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr'],
+        5: ['Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe'],
+        6: ['Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu',
+            'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn'],
+        7: ['Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
+            'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
+    }
+    
+    # Create gradient colors for each period
+    atomic_numbers = {}
+    for period, elements in period_elements.items():
+        base_color = period_base_colors[period]
+        # Convert hex to rgb, lighten and darken
+        rgb = matplotlib.colors.to_rgb(base_color)
+        light_color = tuple(min(1.0, c * 1.5) for c in rgb)  # 50% lighter
+        dark_color = tuple(c * 0.5 for c in rgb)  # 50% darker
+        cmap = matplotlib.colors.LinearSegmentedColormap.from_list(f'period_{period}', [light_color, base_color, dark_color])
+        
+        for i, element in enumerate(elements):
+            gradient_value = i / (len(elements) - 1) if len(elements) > 1 else 0.5
+            atomic_numbers[element] = {
+                'Z': sum(len(v) for k, v in period_elements.items() if k < period) + i + 1,
+                'color': matplotlib.colors.rgb2hex(cmap(gradient_value))
+            }
+    
     def get_oxidation_state(col):
-        """Extract oxidation state from superscript number."""
         superscript_map = {'¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7}
         for char in col:
-            if char in superscript_map:
+            if (char in superscript_map):
                 return superscript_map[char]
         return 1 if '⁺' in col else 0
     
     def get_metal_symbol(col):
-        """Extract metal symbol from column name."""
         return ''.join(c for c in col if c.isalpha())
     
+    def get_metal_color(col):
+        metal = get_metal_symbol(col)
+        return atomic_numbers.get(metal, {}).get('color', '#333333')  # Default gray
+    
     def get_sort_key(col):
-        """Create sort key (oxidation_state, atomic_number)."""
         if '⁺' not in col:
             return (float('inf'), float('inf'))
         oxidation_state = get_oxidation_state(col)
         metal = get_metal_symbol(col)
-        atomic_num = atomic_numbers.get(metal, float('inf'))
+        atomic_num = atomic_numbers.get(metal, {}).get('Z', float('inf'))
         return (oxidation_state, atomic_num)
     
-    # Sort metal columns by oxidation state and atomic number
+    # Store colors in DataFrame for later use
+    metal_df.attrs['colors'] = {col: get_metal_color(col) for col in metal_df.columns}
+    
+    # Sort columns
     metal_cols = [col for col in metal_df.columns if '⁺' in col]
     sorted_cols = sorted(metal_cols, key=get_sort_key)
-    
-    # Add remaining columns at the end
     other_cols = [col for col in metal_df.columns if col not in sorted_cols]
     sorted_cols.extend(other_cols)
-    
-    # Reorder DataFrame columns
     metal_df = metal_df[sorted_cols]
     
     return metal_df
@@ -193,10 +214,12 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
             r_squared = 1 - (np.sum((filtered_tm_values - predicted_y) ** 2) / 
                             np.sum((filtered_tm_values - filtered_tm_values.mean()) ** 2))
             
-            # Plot data and fit
-            ax.scatter(filtered_concentrations, filtered_tm_values, label=metal)
+            # Plot data and fit with metal-specific colors
+            color = metal_df.attrs['colors'].get(metal, '#333333')
+            ax.scatter(filtered_concentrations, filtered_tm_values, 
+                      label=metal, color=color)
             if r_squared > 0.5:
-                ax.plot(fit_x, fit_y, color='gray', alpha=0.5)
+                ax.plot(fit_x, fit_y, color=color, alpha=0.5)
             
             # Store parameters in DataFrame
             metal_df.loc['Kd', metal] = K
