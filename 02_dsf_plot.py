@@ -162,8 +162,24 @@ def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_
     return metals, ax, kd_summary
 
 def plot_tm_scatter(metal_df, exclude, title, output_dir):
+    # Get WT average and EDTA values
     wt_avg_tm = metal_df.loc['WT'].mean(skipna=True)
     edta_avg_tm = metal_df.loc['EDTA'].mean(skipna=True)
+    wt_edta = metal_df.iloc[-2:]
+    metal_df = metal_df.iloc[:-2]
+
+    compare_tm = edta_avg_tm
+
+    # Add new concentration rows
+    new_concentrations = [0.1]
+    for conc in new_concentrations:
+        metal_df.loc[str(conc)] = compare_tm
+        
+    
+    metal_df = pd.concat([metal_df, wt_edta], axis=0)
+    print(metal_df)
+
+    # Initialize parameter rows
     metal_df.loc['Kd'] = np.nan
     metal_df.loc['Delta_Tm'] = np.nan
     metal_df.loc['R2'] = np.nan
@@ -178,6 +194,8 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
     concentrations = concentrations[exclude:]
 
     for metal in metal_df.columns:
+        if metal == "HCl":
+            continue
         tm_values = metal_df[metal].iloc[:-5] 
         tm_values = tm_values[exclude:]
         mask = (tm_values != 0) & tm_values.notna()
@@ -186,12 +204,12 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
         print(metal)
         # Determine if stabilizing or destabilizing
         try:
-            if (filtered_tm_values.iloc[-1] - wt_avg_tm) < 0: # destabilizing
-                p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
-                bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
+            if (filtered_tm_values.iloc[-1] - compare_tm) < 0: # destabilizing
+                p0 = [compare_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
+                bounds = ([compare_tm - 5, 0, 0, -1], [compare_tm + 5, 125, np.inf, 1])
             else: # stabilizing
-                p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
-                bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
+                p0 = [min(filtered_tm_values), compare_tm, np.median(filtered_concentrations), 0]
+                bounds = ([0, compare_tm - 5, 0, -1], [125, compare_tm + 5, np.inf, 1])
             
             # Fit Hill equation
             popt, _ = curve_fit(lambda x, ymin, ymax, K, n: hill_eq(x, ymin, ymax, K, n),
@@ -202,10 +220,10 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
             ymin, ymax, K, n = popt
             
             # Calculate parameters
-            if (filtered_tm_values.iloc[-1] - wt_avg_tm) < 0:
-                delta_tm = ymax - wt_avg_tm
+            if (filtered_tm_values.iloc[-1] - compare_tm) < 0:
+                delta_tm = ymax - compare_tm
             else: 
-                delta_tm = ymin - wt_avg_tm
+                delta_tm = ymin - compare_tm
             
             # Generate fit curve and calculate R²
             fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
