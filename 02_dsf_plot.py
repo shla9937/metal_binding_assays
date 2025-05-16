@@ -30,48 +30,71 @@ def load_data(csv_files):
     # Load and concatenate files
     df_list = [pd.read_csv(csv_file, index_col=0) for csv_file in csv_files]
     metal_df = pd.concat(df_list, ignore_index=False, axis=1)
-    
-    # Define base colors for periods
-    period_base_colors = {
-        1: "#56B4E9",  # Light blue
-        2: "#D55E00",  # Red
-        3: "#E69F00",  # Orange
-        4: "#F0E442",  # Yellow
-        5: "#009E73",  # Green
-        6: "#CC79A7",  # Pink
-        7: "#0072B2"   # Dark blue
-    }
-    
-    # Create color gradients for each period
-    period_elements = {
-        1: ['H', 'He'],
-        2: ['Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne'],
-        3: ['Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar'],
-        4: ['K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr'],
-        5: ['Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe'],
-        6: ['Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu',
-            'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn'],
-        7: ['Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
-            'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
-    }
-    
-    # Create gradient colors for each period
-    atomic_numbers = {}
-    for period, elements in period_elements.items():
-        base_color = period_base_colors[period]
-        # Convert hex to rgb, lighten and darken
-        rgb = matplotlib.colors.to_rgb(base_color)
-        light_color = tuple(min(1.0, c * 1.5) for c in rgb)  # 50% lighter
-        dark_color = tuple(c * 0.5 for c in rgb)  # 50% darker
-        cmap = matplotlib.colors.LinearSegmentedColormap.from_list(f'period_{period}', [light_color, base_color, dark_color])
+
+    # Get tab20 colors
+    tab20_colors = plt.cm.tab20(np.linspace(0, 1, 20))
+    tab20_hex = [matplotlib.colors.rgb2hex(c) for c in tab20_colors]
+
+    # Define explicit colors for each element using tab20 colors for each period
+    element_colors = {
+        # Period 1 (first two colors of tab20)
+        'H': tab20_hex[0], 'He': tab20_hex[1],
         
-        for i, element in enumerate(elements):
-            gradient_value = i / (len(elements) - 1) if len(elements) > 1 else 0.5
-            atomic_numbers[element] = {
-                'Z': sum(len(v) for k, v in period_elements.items() if k < period) + i + 1,
-                'color': matplotlib.colors.rgb2hex(cmap(gradient_value))
-            }
+        # Period 2 (next 8 colors of tab20)
+        'Li': tab20_hex[2], 'Be': tab20_hex[3], 'B': tab20_hex[4], 'C': tab20_hex[5],
+        'N': tab20_hex[6], 'O': tab20_hex[7], 'F': tab20_hex[8], 'Ne': tab20_hex[9],
+        
+        # Period 3 (next 8 colors of tab20, wrapping around if needed)
+        'Na': tab20_hex[10], 'Mg': tab20_hex[11], 'Al': tab20_hex[12], 'Si': tab20_hex[13],
+        'P': tab20_hex[14], 'S': tab20_hex[15], 'Cl': tab20_hex[16], 'Ar': tab20_hex[17],
+        
+        # Period 4 (cycle through tab20 colors)
+        'K': tab20_hex[0], 'Ca': tab20_hex[1], 'Sc': tab20_hex[2], 'Ti': tab20_hex[3],
+        'V': tab20_hex[4], 'Cr': tab20_hex[5], 'Mn': tab20_hex[6], 'Fe': tab20_hex[7],
+        'Co': tab20_hex[8], 'Ni': tab20_hex[9], 'Cu': tab20_hex[10], 'Zn': tab20_hex[11],
+        'Ga': tab20_hex[12], 'Ge': tab20_hex[13], 'As': tab20_hex[14], 'Se': tab20_hex[15],
+        'Br': tab20_hex[16], 'Kr': tab20_hex[17],
+        
+        # Period 5 (cycle through tab20 colors again)
+        'Rb': tab20_hex[0], 'Sr': tab20_hex[1], 'Y': tab20_hex[2], 'Zr': tab20_hex[3],
+        'Nb': tab20_hex[4], 'Mo': tab20_hex[5], 'Tc': tab20_hex[6], 'Ru': tab20_hex[7],
+        'Rh': tab20_hex[8], 'Pd': tab20_hex[9], 'Ag': tab20_hex[10], 'Cd': tab20_hex[11],
+        'In': tab20_hex[12], 'Sn': tab20_hex[13], 'Sb': tab20_hex[14], 'Te': tab20_hex[15],
+        'I': tab20_hex[16], 'Xe': tab20_hex[17],
+        
+        # Period 6 (including lanthanides)
+        'Cs': tab20_hex[0], 'Ba': tab20_hex[1], 'La': tab20_hex[2], 'Ce': tab20_hex[3],
+        'Pr': tab20_hex[4], 'Nd': tab20_hex[5], 'Pm': tab20_hex[6], 'Sm': tab20_hex[7],
+        'Eu': tab20_hex[8], 'Gd': tab20_hex[9], 'Tb': tab20_hex[10], 'Dy': tab20_hex[11],
+        'Ho': tab20_hex[12], 'Er': tab20_hex[13], 'Tm': tab20_hex[14], 'Yb': tab20_hex[15],
+        'Lu': tab20_hex[16], 'Hf': tab20_hex[17], 'Ta': tab20_hex[18], 'W': tab20_hex[19],
+        'Re': tab20_hex[0], 'Os': tab20_hex[1], 'Ir': tab20_hex[2], 'Pt': tab20_hex[3],
+        'Au': tab20_hex[4], 'Hg': tab20_hex[5], 'Tl': tab20_hex[6], 'Pb': tab20_hex[7],
+        'Bi': tab20_hex[8], 'Po': tab20_hex[9], 'At': tab20_hex[10], 'Rn': tab20_hex[11],
+        
+        # Period 7 (including actinides)
+        'Fr': tab20_hex[0], 'Ra': tab20_hex[1], 'Ac': tab20_hex[2], 'Th': tab20_hex[3],
+        'Pa': tab20_hex[4], 'U': tab20_hex[5], 'Np': tab20_hex[6], 'Pu': tab20_hex[7],
+        'Am': tab20_hex[8], 'Cm': tab20_hex[9], 'Bk': tab20_hex[10], 'Cf': tab20_hex[11],
+        'Es': tab20_hex[12], 'Fm': tab20_hex[13], 'Md': tab20_hex[14], 'No': tab20_hex[15],
+        'Lr': tab20_hex[16], 'Rf': tab20_hex[17], 'Db': tab20_hex[18], 'Sg': tab20_hex[19],
+        'Bh': tab20_hex[0], 'Hs': tab20_hex[1], 'Mt': tab20_hex[2], 'Ds': tab20_hex[3],
+        'Rg': tab20_hex[4], 'Cn': tab20_hex[5], 'Nh': tab20_hex[6], 'Fl': tab20_hex[7],
+        'Mc': tab20_hex[8], 'Lv': tab20_hex[9], 'Ts': tab20_hex[10], 'Og': tab20_hex[11]
+    }
+
+    def get_metal_symbol(col):
+        return ''.join(c for c in col if c.isalpha())
+
+    def get_metal_color(col):
+        metal = get_metal_symbol(col)
+        return element_colors.get(metal, '#333333')  # Default gray
     
+    # Store colors in DataFrame for later use
+    metal_df.attrs['colors'] = {col: get_metal_color(col) for col in metal_df.columns}
+    
+    print(metal_df)
+
     def get_oxidation_state(col):
         superscript_map = {'¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7}
         for char in col:
@@ -79,23 +102,37 @@ def load_data(csv_files):
                 return superscript_map[char]
         return 1 if '⁺' in col else 0
     
-    def get_metal_symbol(col):
-        return ''.join(c for c in col if c.isalpha())
-    
-    def get_metal_color(col):
-        metal = get_metal_symbol(col)
-        return atomic_numbers.get(metal, {}).get('color', '#333333')  # Default gray
-    
+    # Define periodic table structure for atomic number lookup
+    period_elements = {
+        1: ['H', 'He'],
+        2: ['Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne'],
+        3: ['Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar'],
+        4: ['K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 
+            'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr'],
+        5: ['Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd',
+            'In', 'Sn', 'Sb', 'Te', 'I', 'Xe'],
+        6: ['Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy',
+            'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt',
+            'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn'],
+        7: ['Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf',
+            'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds',
+            'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']}
+
+    # Create atomic numbers dictionary
+    atomic_numbers = {}
+    z = 1
+    for period in sorted(period_elements.keys()):
+        for element in period_elements[period]:
+            atomic_numbers[element] = z
+            z += 1
+
     def get_sort_key(col):
         if '⁺' not in col:
             return (float('inf'), float('inf'))
         oxidation_state = get_oxidation_state(col)
         metal = get_metal_symbol(col)
-        atomic_num = atomic_numbers.get(metal, {}).get('Z', float('inf'))
+        atomic_num = atomic_numbers.get(metal, float('inf'))
         return (oxidation_state, atomic_num)
-    
-    # Store colors in DataFrame for later use
-    metal_df.attrs['colors'] = {col: get_metal_color(col) for col in metal_df.columns}
     
     # Sort columns
     metal_cols = [col for col in metal_df.columns if '⁺' in col]
@@ -171,7 +208,7 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
     compare_tm = edta_avg_tm
 
     # Add new concentration rows
-    new_concentrations = [0.1]
+    new_concentrations = [0.001]
     for conc in new_concentrations:
         metal_df.loc[str(conc)] = compare_tm
         
@@ -249,6 +286,9 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
         except RuntimeError:
             print(f"Could not fit Hill equation for {metal}")
             kd_summary.append(f"{metal}: N.B.")
+            color = metal_df.attrs['colors'].get(metal, '#333333')
+            ax.scatter(filtered_concentrations, filtered_tm_values, 
+                      label=metal, color=color)
 
     # Add WT and EDTA lines
     ax.axhline(wt_avg_tm, color='red', linestyle='-', label="WT")
@@ -301,20 +341,6 @@ def plot_tm_bar(metal_df, title, output_dir):
     ax.set_title('DSF Kd and Tm shift for '+title, pad=20)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
-    # Add Kd labels to bars
-    # for bar, kd in zip(bars, Kd_values):
-    #     if kd < 10000:
-    #         height = bar.get_height()
-    #         if height < 0.02:
-    #             new_height = 0.05
-    #         elif height < 0.5:
-    #             new_height = height + 0.05
-    #         else:
-    #             new_height = height - 0.4
-    #         ax.text(bar.get_x() + bar.get_width()/2, new_height,
-    #                f'{kd:.1f} μM', ha='center', va='bottom', 
-    #                fontsize=10, rotation=90)
 
     # Add ΔTm color legend
     sm = plt.cm.ScalarMappable(cmap='coolwarm', norm=norm)
