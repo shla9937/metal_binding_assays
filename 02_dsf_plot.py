@@ -24,6 +24,7 @@ def main():
     metal_df = load_data(args.csvs)
     metal_df = plot_tm_scatter(metal_df, args.exclude, args.title, output_dir)
     plot_tm_bar(metal_df, args.title, output_dir)
+    plot_delta_tm_bar(metal_df, args.title, output_dir)
     metal_df.to_csv(os.path.join(output_dir, f"{args.title.replace(' ', '_')}_tm_values.csv"), index=True)
     
 def load_data(csv_files):
@@ -331,25 +332,50 @@ def plot_tm_bar(metal_df, title, output_dir):
     colors = [plt.cm.coolwarm(norm(tm)) for tm in delta_tm]
 
     # Create bar plot
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(4, 2))
     bars = ax.bar(metals, inv_Kd, color=colors, edgecolor='black', width=0.8)
     
     # Customize plot
-    ax.set_ylabel('Binding Affinity (1/Kd)', fontsize=12)
+    ax.set_ylabel('Binding Affinity (1/Kd)', fontsize=8)
     ax.set_yscale('log')
-    ax.set_xlabel('Metal Ion', fontsize=12)
-    ax.set_title('DSF Kd and Tm shift for '+title, pad=20)
+    ax.set_xlabel('Metal Ion', fontsize=8)
+    ax.set_title('DSF Kd and Tm shift for '+title, pad=20, fontsize=8)
+    plt.yticks(fontsize=6)
+    plt.xticks(rotation=90, fontsize=6)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
     # Add ΔTm color legend
     sm = plt.cm.ScalarMappable(cmap='coolwarm', norm=norm)
     sm.set_array([])
-    cbar = plt.colorbar(sm, ax=ax, pad=0.02)
-    cbar.set_label('ΔTm (°C)', fontsize=12)
+    cbar = plt.colorbar(sm, ax=ax, pad=0.02, )
+    cbar.set_label('ΔTm (°C)', fontsize=8)
 
     plt.tight_layout()
     plt.savefig(output_dir+"/"+title.replace(' ', '_')+"_kd_tm_bar.png", dpi=300, bbox_inches='tight')
+
+def plot_delta_tm_bar(metal_df, title, output_dir):
+    # Filter out control columns and get values
+    metals = [col for col in metal_df.columns if col not in ["WT", "EDTA", "HCl", "Blank"]]
+    delta_tm = metal_df.loc['Delta_Tm', metals].values.astype(float)
+
+    # Create bar plot
+    fig, ax = plt.subplots(figsize=(4, 2))
+    bars = ax.bar(metals, delta_tm, edgecolor='black', width=0.8)
+    
+    # Add zero line
+    ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+    
+    # Customize plot
+    ax.set_ylabel('ΔTm (°C)', fontsize=8)
+    ax.set_xlabel('Metal Ion', fontsize=8)
+    ax.set_title('DSF ΔTm shifts for '+title, pad=20, fontsize=8)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    plt.xticks(rotation=90, ha='right', fontsize=6)
+    plt.yticks(fontsize=6)
+    plt.tight_layout()
+    plt.savefig(output_dir+"/"+title.replace(' ', '_')+"_delta_tm_bar.png", dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
