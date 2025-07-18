@@ -153,65 +153,13 @@ def hcl_effect(tm_df, metals, concentrations, exclude):
             metals[metal] = wells[exclude:]
     return metals, concentrations
 
-def fit_hill(metals, metal, filtered_concentrations, filtered_tm_values, ax, kd_summary, wt_avg_tm):
-    filtered_tm_values = np.array(filtered_tm_values)
-    try:
-        if (wt_avg_tm - np.average(filtered_tm_values)) < 0:
-            p0 = [wt_avg_tm, max(filtered_tm_values), np.median(filtered_concentrations), 0]
-            bounds = ([wt_avg_tm - 5, 0, 0, -1], [wt_avg_tm + 5, 125, np.inf, 1])
-            popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
-                                filtered_concentrations,
-                                filtered_tm_values,
-                                p0=p0,
-                                bounds=bounds)
-            ymin, ymax, K, n = popt
-            delta_tm = ymax - wt_avg_tm
-
-        else:
-            p0 = [min(filtered_tm_values), wt_avg_tm, np.median(filtered_concentrations), 0]
-            bounds = ([0, wt_avg_tm - 5, 0, -1], [125, wt_avg_tm + 5, np.inf, 1])
-            popt, _ = curve_fit(lambda concentration, ymin, ymax, K, n: hill_eq(concentration, ymin, ymax, K, n),
-                                filtered_concentrations,
-                                filtered_tm_values,
-                                p0=p0,
-                                bounds=bounds)
-            ymin, ymax, K, n = popt
-            delta_tm = ymin - wt_avg_tm
-            print(metal, ymin)
-
-        # Generate the fit curve
-        fit_x = np.logspace(np.log10(min(filtered_concentrations)), np.log10(max(filtered_concentrations)), 100)
-        fit_y = hill_eq(fit_x, ymin, ymax, K, n)
-        ax.plot(fit_x, fit_y, color='gray')
-
-        # Calculate R²
-        predicted_tm_values = hill_eq(filtered_concentrations, ymin, ymax, K, n)
-        ss_res = np.sum((filtered_tm_values - predicted_tm_values) ** 2)
-        ss_tot = np.sum((filtered_tm_values - np.mean(filtered_tm_values)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot)
-        kd_summary.append(f"{metal}: Kd={K:.2f}µM, ΔTm={delta_tm:.2f}°C, R²={r_squared:.2f}")
-        metals[metal].extend([round(K, 2), round(delta_tm, 2), round(r_squared, 2)])
-
-    except RuntimeError:
-        print(f"Could not fit Hill equation for {metal}")
-        kd_summary.append(f"{metal}: N.B.")
-        metals[metal].extend(["N.B.", 0, 0])
-    return metals, ax, kd_summary
-
 def plot_tm_scatter(metal_df, exclude, title, output_dir):
     # Get WT average and EDTA values
     wt_avg_tm = metal_df.loc['WT'].mean(skipna=True)
     edta_avg_tm = metal_df.loc['EDTA'].mean(skipna=True)
-    wt_edta = metal_df.iloc[-2:]
-    metal_df = metal_df.iloc[:-2]
-
+    wt_edta = metal_df.iloc[-3:]
+    metal_df = metal_df.iloc[:-3]
     compare_tm = edta_avg_tm
-
-    # # Add new concentration rows
-    # new_concentrations = [0.001]
-    # for conc in new_concentrations:
-    #     metal_df.loc[str(conc)] = compare_tm
-        
     
     metal_df = pd.concat([metal_df, wt_edta], axis=0)
     print(metal_df)
@@ -227,13 +175,13 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
     ax_text = fig.add_subplot(gs[1])
     
     kd_summary = []
-    concentrations = metal_df.index[:-5].astype(float) 
+    concentrations = metal_df.index[:-6].astype(float) 
     concentrations = concentrations[exclude:]
 
     for metal in metal_df.columns:
-        if metal == "HCl":
+        if metal == "Acid":
             continue
-        tm_values = metal_df[metal].iloc[:-5] 
+        tm_values = metal_df[metal].iloc[:-6] 
         tm_values = tm_values[exclude:]
         mask = (tm_values != 0) & tm_values.notna()
         filtered_concentrations = concentrations[mask]
@@ -316,7 +264,7 @@ def plot_tm_scatter(metal_df, exclude, title, output_dir):
 
 def plot_tm_bar(metal_df, title, output_dir):
     # Filter out control columns and get values
-    metals = [col for col in metal_df.columns if col not in ["WT", "EDTA", "HCl", "Blank"]]
+    metals = [col for col in metal_df.columns if col not in ["WT", "EDTA", "Acid", "Blank"]]
     Kd_values = metal_df.loc['Kd', metals].values.astype(float)
     delta_tm = metal_df.loc['Delta_Tm', metals].values.astype(float)
     r2_values = metal_df.loc['R2', metals].values.astype(float)
