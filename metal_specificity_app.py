@@ -53,7 +53,6 @@ def compute_specificity(df: pd.DataFrame):
         if len(vals) >= 2:
             best = vals.iloc[0]
             second = vals.iloc[1]
-            # Avoid divide-by-zero; add tiny epsilon if needed
             specificity_fold[col] = (second) / (best)
         else:
             specificity_fold[col] = np.nan
@@ -73,11 +72,11 @@ def build_figure(df: pd.DataFrame):
         min_val = np.nanmin(col_vals)
         max_val = np.nanmax(col_vals)
         normed = (col_vals - min_val) / (max_val - min_val)
-        normed[np.isnan(col_vals)] = np.nan  # <-- preserve NaNs
+        normed[np.isnan(col_vals)] = np.nan
         z_log[col] = normed
     x_labels = df.columns.astype(str)
     y_labels = df.index.astype(str)
-    z_main = z_log.loc[y_labels, x_labels].values  # ensure order
+    z_main = z_log.loc[y_labels, x_labels].values
 
     # 2. Prepare custom hover text with formatted Kd and units
     def format_kd(val):
