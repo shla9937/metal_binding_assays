@@ -58,7 +58,7 @@ def main():
     parser.add_argument('-c', '--csv', type=str, required=True, help="Raw DSF values from DA2")
     parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
     parser.add_argument('-e', '--exclude', type=float, required=False, help="Name of protein")
-    parser.add_argument('-t', '--temperature', type=float, required=False, help="Override analysis temperature")
+    parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
     args = parser.parse_args()
 
     df = parse_csv_file(args.csv)
@@ -73,8 +73,9 @@ def main():
     # plot_df(avg_tm_df, 'Average Normalized Fluorescence', error_column='Standard Error')
     plot_df(avg_tm_df, 'Smoothed Fluorescence', error_column='Standard Error')
     # plot_tms(avg_tm_df)
-    titration_df = find_kds(avg_tm_df, override=args.temperature)
-    plot_kds(titration_df)
+    titration_df, kd_results = find_kds(avg_tm_df, override=args.override)
+    print(kd_results)
+    plot_kds(titration_df, kd_results)
 
 def parse_csv_file(csv):
     with open(csv, 'r') as f:
@@ -95,9 +96,10 @@ def exclude_temps(df, exclude):
     return df[df['Temperature'] <= exclude]
 
 def assign_conc(df):
-    global metals_left, metals_right, rows, metal_colors
+    global metals_left, metals_right, rows, metal_colors, protein_conc
     df['Metal'] = None
     df['Concentration'] = np.nan
+    protein_conc = 5  # µM
     # which metal is being titrated in columns 1-12, A-P)
     metals_left = ["Mn²⁺", "Mn²⁺", "Fe³⁺", "Fe³⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺",
                    "Cu²⁺", "Cu²⁺", "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "Mix", "Mix"]
@@ -269,8 +271,7 @@ def find_tms(df):
     for tm, smoothed, indices in zip(tm_values, smoothed_values, group_indices):
         df.loc[indices, 'Tm'] = tm
         df.loc[indices, 'Smoothed Fluorescence'] = smoothed
-    
-    print(df)
+
     return df
 
 def plot_tms(df):
@@ -307,6 +308,56 @@ def plot_tms(df):
     plt.tight_layout()
     plt.savefig('tm_vs_concentration.png', dpi=300)
     plt.show()
+
+# Simple 1:1 binding equation (original)
+# def binding_curve(conc, kd, ymin, ymax):
+#     """Hill equation for 1:1 binding"""
+#     return ymin + (ymax - ymin) * conc / (kd + conc)
+
+# Quadratic binding equation (Bai et al. 2018) - accounts for ligand depletion
+def binding_curve(conc, kd, ymin, ymax):
+    """Quadratic binding equation accounting for ligand depletion"""
+    global protein_conc
+    Pt = protein_conc  # Total protein concentration in µM
+    Lt = conc  # Total ligand (metal) concentration in µM
+    
+    # Fraction bound = (([P]t + [L]t + Kd) - sqrt((([P]t + [L]t + Kd)^2 - 4[P]t[L]t))) / (2[P]t)
+    fraction_bound = ((Pt + Lt + kd) - np.sqrt((Pt + Lt + kd)**2 - 4*Pt*Lt)) / (2*Pt)
+    
+    return ymin + (ymax - ymin) * fraction_bound
+
+def fit_binding_curve(concentrations, values, errors):
+    """Fit binding curve and return Kd with confidence interval"""
+    try:
+        # Initial parameter guesses
+        ymin_guess = np.min(values)
+        ymax_guess = np.max(values)
+        kd_guess = np.median(concentrations)
+        
+        # Replace zero errors with small value to avoid division by zero
+        errors = np.where(errors == 0, 1e-10, errors)
+        
+        # Fit the curve
+        popt, pcov = curve_fit(
+            binding_curve, 
+            concentrations, 
+            values,
+            p0=[kd_guess, ymin_guess, ymax_guess],
+            sigma=errors,
+            absolute_sigma=True,
+            maxfev=10000,
+            bounds=([0, 0, 0], [np.inf, 1, 1])
+        )
+        
+        kd, ymin, ymax = popt
+        
+        # Calculate confidence intervals (95%)
+        perr = np.sqrt(np.diag(pcov))
+        kd_err = perr[0] * 1.96  # 95% CI
+        
+        return kd, kd_err, popt
+    except:
+        return np.nan, np.nan, None
 
 def find_kds(df, override=None):
     # Get reference Tm values
@@ -356,81 +407,132 @@ def find_kds(df, override=None):
         kd_data.append(data_dict)
     
     kd_df = pd.DataFrame(kd_data)
-    return kd_df
+    
+    # Now fit binding curves for each metal at each temperature
+    # Store Kd values in a list to convert to DataFrame
+    kd_list = []
+    
+    for metal in kd_df['Metal'].unique():
+        metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
+        concs = metal_data['Concentration'].values
+        
+        # Convert to % folded (invert normalized fluorescence)
+        wt_vals = 1 - metal_data['WT Tm'].values
+        wt_errs = metal_data['WT Tm Standard Error'].values
+        edta_vals = 1 - metal_data['EDTA Tm'].values
+        edta_errs = metal_data['EDTA Tm Standard Error'].values
+        
+        # Fit WT Tm data
+        kd_wt, kd_wt_err, popt_wt = fit_binding_curve(concs, wt_vals, wt_errs)
+        kd_list.append({
+            'Metal': metal,
+            'Temperature': 'WT',
+            'Kd': kd_wt,
+            'Kd_Error': kd_wt_err,
+            'Fit_Params': popt_wt
+        })
+        
+        # Fit EDTA Tm data
+        kd_edta, kd_edta_err, popt_edta = fit_binding_curve(concs, edta_vals, edta_errs)
+        kd_list.append({
+            'Metal': metal,
+            'Temperature': 'EDTA',
+            'Kd': kd_edta,
+            'Kd_Error': kd_edta_err,
+            'Fit_Params': popt_edta
+        })
+        
+        # Fit override data if present
+        if override is not None:
+            override_vals = 1 - metal_data['Override Tm'].values
+            override_errs = metal_data['Override Tm Standard Error'].values
+            kd_override, kd_override_err, popt_override = fit_binding_curve(concs, override_vals, override_errs)
+            kd_list.append({
+                'Metal': metal,
+                'Temperature': 'Override',
+                'Kd': kd_override,
+                'Kd_Error': kd_override_err,
+                'Fit_Params': popt_override
+            })
+    
+    kd_results = pd.DataFrame(kd_list)
+    return kd_df, kd_results
 
-def plot_kds(df):
+def plot_kds(df, kd_results):
     # Check if override temperature data exists
     has_override = 'Override Temperature' in df.columns
-    n_plots = 3 if has_override else 2
     
-    fig, axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
-    if n_plots == 2:
-        ax1, ax2 = axes
-    else:
-        ax1, ax2, ax3 = axes
-    
-    # Get the actual temperature values
-    wt_temp = df['WT Tm Temperature'].iloc[0]
-    edta_temp = df['EDTA Tm Temperature'].iloc[0]
-    
-    # Plot 1: WT Tm titrations
-    for metal in sorted(df['Metal'].unique()):
-        metal_data = df[df['Metal'] == metal].sort_values('Concentration')
-        concentrations = metal_data['Concentration'].values
-        wt_values = metal_data['WT Tm'].values
-        wt_errors = metal_data['WT Tm Standard Error'].values
-        
-        color = metal_colors[metal]
-        ax1.errorbar(concentrations, wt_values, yerr=wt_errors, 
-                    color=color, label=metal, marker='o', linestyle='-', 
-                    capsize=3, alpha=0.8)
-    
-    ax1.set_xlabel('Concentration (µM)', fontsize=10)
-    ax1.set_ylabel('Fluorescence', fontsize=10)
-    ax1.set_title(f'Titration at WT Tm ({wt_temp:.1f}°C)', fontsize=11)
-    ax1.set_xscale('log')
-    ax1.legend(fontsize=8)
-    ax1.grid(True, alpha=0.3)
-    
-    # Plot 2: EDTA Tm titrations
-    for metal in sorted(df['Metal'].unique()):
-        metal_data = df[df['Metal'] == metal].sort_values('Concentration')
-        concentrations = metal_data['Concentration'].values
-        edta_values = metal_data['EDTA Tm'].values
-        edta_errors = metal_data['EDTA Tm Standard Error'].values
-        
-        color = metal_colors[metal]
-        ax2.errorbar(concentrations, edta_values, yerr=edta_errors, 
-                    color=color, label=metal, marker='o', linestyle='-', 
-                    capsize=3, alpha=0.8)
-    
-    ax2.set_xlabel('Concentration (µM)', fontsize=10)
-    ax2.set_ylabel('Fluorescence', fontsize=10)
-    ax2.set_title(f'Titration at EDTA Tm ({edta_temp:.1f}°C)', fontsize=11)
-    ax2.set_xscale('log')
-    ax2.legend(fontsize=8)
-    ax2.grid(True, alpha=0.3)
-    
-    # Plot 3: Override temperature titrations (if provided)
+    # Define plot configurations
+    plot_configs = [('WT Tm', 'WT Tm Temperature', 'WT'),
+        ('EDTA Tm', 'EDTA Tm Temperature', 'EDTA')]
     if has_override:
-        override_temp = df['Override Temperature'].iloc[0]
+        plot_configs.append(('Override Tm', 'Override Temperature', 'Override'))
+    
+    n_plots = len(plot_configs)
+    fig, axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
+    if n_plots == 1:
+        axes = [axes]
+    
+    # Concentration range for fitted curves (exclude zero)
+    conc_min = df[df['Concentration'] > 0]['Concentration'].min()
+    conc_max = df['Concentration'].max()
+    conc_fit = np.logspace(np.log10(conc_min), np.log10(conc_max), 200)
+    
+    # Loop through each plot configuration
+    for ax, (data_col, temp_col, kd_key) in zip(axes, plot_configs):
+        temp_value = df[temp_col].iloc[0]
+        
         for metal in sorted(df['Metal'].unique()):
             metal_data = df[df['Metal'] == metal].sort_values('Concentration')
             concentrations = metal_data['Concentration'].values
-            override_values = metal_data['Override Tm'].values
-            override_errors = metal_data['Override Tm Standard Error'].values
+            values = 1 - metal_data[data_col].values  # Convert to % folded
+            errors = metal_data[f'{data_col} Standard Error'].values
             
             color = metal_colors[metal]
-            ax3.errorbar(concentrations, override_values, yerr=override_errors, 
-                        color=color, label=metal, marker='o', linestyle='-', 
-                        capsize=3, alpha=0.8)
+            
+            # Get Kd and fit parameters from DataFrame
+            kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
+            if not kd_row.empty:
+                kd = kd_row['Kd'].values[0]
+                kd_err = kd_row['Kd_Error'].values[0]
+                popt = kd_row['Fit_Params'].values[0]
+            else:
+                kd, kd_err, popt = np.nan, np.nan, None
+            
+            # Create label with Kd (use nM if Kd < 1 µM)
+            if not np.isnan(kd):
+                if kd < 1.0:
+                    # Report in nM
+                    kd_nm = kd * 1000
+                    kd_err_nm = kd_err * 1000
+                    label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM"
+                else:
+                    # Report in µM
+                    label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM"
+            else:
+                label = f"{metal}: Kd=N/A"
+            
+            # Plot data points
+            ax.errorbar(concentrations, values, yerr=errors, 
+                       color=color, marker='o', linestyle='', 
+                       capsize=3, alpha=0.7, markersize=6)
+            
+            # Plot fitted curve
+            if popt is not None:
+                fit_vals = binding_curve(conc_fit, *popt)
+                ax.plot(conc_fit, fit_vals, color=color, linestyle='-', 
+                       linewidth=2, alpha=0.8, label=label)
+            else:
+                ax.plot([], [], color=color, label=label)  # Just for legend
         
-        ax3.set_xlabel('Concentration (µM)', fontsize=10)
-        ax3.set_ylabel('Fluorescence', fontsize=10)
-        ax3.set_title(f'Titration at Override Temp ({override_temp:.1f}°C)', fontsize=11)
-        ax3.set_xscale('log')
-        ax3.legend(fontsize=8)
-        ax3.grid(True, alpha=0.3)
+        # Format axis
+        ax.set_xlabel('Concentration (µM)', fontsize=10)
+        ax.set_ylabel('% Folded', fontsize=10)
+        title_name = 'WT Tm' if kd_key == 'WT' else ('EDTA Tm' if kd_key == 'EDTA' else 'Override Temp')
+        ax.set_title(f'Titration at {title_name} ({temp_value:.1f}°C)', fontsize=11)
+        ax.set_xscale('log')
+        ax.legend(fontsize=7, loc='best')
+        ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.savefig('metal_titrations.png', dpi=300)
