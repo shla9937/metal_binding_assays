@@ -60,6 +60,8 @@ def main():
     parser.add_argument('-e', '--exclude', type=float, required=False, help="Name of protein")
     parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
     parser.add_argument('-x', '--exclude_high', type=int, default=0, help="Number of highest concentrations to exclude from fitting")
+    parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site'], 
+                        help="Binding model: 'hill' (Hill equation with n) or 'two-site' (two independent sites)")
     args = parser.parse_args()
 
     df = parse_csv_file(args.csv)
@@ -74,9 +76,9 @@ def main():
     # plot_df(avg_tm_df, 'Average Normalized Fluorescence', error_column='Standard Error')
     plot_df(avg_tm_df, 'Smoothed Fluorescence', error_column='Standard Error')
     # plot_tms(avg_tm_df)
-    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, exclude_high=args.exclude_high)
+    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, exclude_high=args.exclude_high, model=args.model)
     print(kd_results)
-    plot_kds(titration_df, kd_results)
+    plot_kds(titration_df, kd_results, model=args.model)
 
 def parse_csv_file(csv):
     with open(csv, 'r') as f:
@@ -311,9 +313,16 @@ def plot_tms(df):
     plt.show()
 
 # Hill equation with cooperativity coefficient
-def binding_curve(conc, kd, ymin, ymax, n):
+def binding_curve_hill(conc, kd, ymin, ymax, n):
     """Hill equation with Hill coefficient n for cooperativity"""
     return ymin + (ymax - ymin) * conc**n / (kd**n + conc**n)
+
+# Two independent binding sites
+def binding_curve_two_site(conc, kd1, kd2, ymin, ymax):
+    """Two independent binding sites with different affinities"""
+    site1 = conc / (kd1 + conc)
+    site2 = conc / (kd2 + conc)
+    return ymin + (ymax - ymin) * 0.5 * (site1 + site2)
 
 # Simple 1:1 binding equation (Hill equation n=1)
 # def binding_curve(conc, kd, ymin, ymax):
@@ -332,42 +341,70 @@ def binding_curve(conc, kd, ymin, ymax, n):
 #     
 #     return ymin + (ymax - ymin) * fraction_bound
 
-def fit_binding_curve(concentrations, values, errors):
-    """Fit binding curve and return Kd, Hill coefficient with confidence intervals"""
+def fit_binding_curve(concentrations, values, errors, model='hill'):
+    """Fit binding curve and return parameters with confidence intervals"""
     try:
         # Initial parameter guesses
         ymin_guess = np.min(values)
         ymax_guess = np.max(values)
         kd_guess = np.median(concentrations)
-        n_guess = 1.0  # Hill coefficient
         
         # Replace zero errors with small value to avoid division by zero
         errors = np.where(errors == 0, 1e-10, errors)
         
-        # Fit the curve
-        popt, pcov = curve_fit(
-            binding_curve, 
-            concentrations, 
-            values,
-            p0=[kd_guess, ymin_guess, ymax_guess, n_guess],
-            sigma=errors,
-            absolute_sigma=True,
-            maxfev=10000,
-            bounds=([0, 0, 0, 0.1], [np.inf, 1, 1, 5])  # Allow n from 0.1 to 5
-        )
+        if model == 'hill':
+            # Hill equation with coefficient
+            n_guess = 1.0  # Hill coefficient
+            popt, pcov = curve_fit(
+                binding_curve_hill, 
+                concentrations, 
+                values,
+                p0=[kd_guess, ymin_guess, ymax_guess, n_guess],
+                sigma=errors,
+                absolute_sigma=True,
+                maxfev=10000,
+                bounds=([0, 0, 0, 0.1], [np.inf, 1, 1, 5])  # Allow n from 0.1 to 5
+            )
+            kd, ymin, ymax, n = popt
+            perr = np.sqrt(np.diag(pcov))
+            kd_err = perr[0] * 1.96
+            n_err = perr[3] * 1.96
+            return {'Kd': kd, 'Kd_Error': kd_err, 'Hill_n': n, 'Hill_n_Error': n_err, 
+                    'Fit_Params': popt, 'Model': 'hill'}
         
-        kd, ymin, ymax, n = popt
-        
-        # Calculate confidence intervals (95%)
-        perr = np.sqrt(np.diag(pcov))
-        kd_err = perr[0] * 1.96  # 95% CI
-        n_err = perr[3] * 1.96   # 95% CI for Hill coefficient
-        
-        return kd, kd_err, n, n_err, popt
+        elif model == 'two-site':
+            # Two independent binding sites
+            kd1_guess = kd_guess * 0.1  # Higher affinity site
+            kd2_guess = kd_guess * 10   # Lower affinity site
+            popt, pcov = curve_fit(
+                binding_curve_two_site, 
+                concentrations, 
+                values,
+                p0=[kd1_guess, kd2_guess, ymin_guess, ymax_guess],
+                sigma=errors,
+                absolute_sigma=True,
+                maxfev=10000,
+                bounds=([0, 0, 0, 0], [np.inf, np.inf, 1, 1])
+            )
+            kd1, kd2, ymin, ymax = popt
+            perr = np.sqrt(np.diag(pcov))
+            kd1_err = perr[0] * 1.96
+            kd2_err = perr[1] * 1.96
+            # Sort Kd values so Kd1 is always the tighter binding
+            if kd1 > kd2:
+                kd1, kd2 = kd2, kd1
+                kd1_err, kd2_err = kd2_err, kd1_err
+            return {'Kd1': kd1, 'Kd1_Error': kd1_err, 'Kd2': kd2, 'Kd2_Error': kd2_err,
+                    'Fit_Params': popt, 'Model': 'two-site'}
     except:
-        return np.nan, np.nan, np.nan, np.nan, None
+        if model == 'hill':
+            return {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan, 
+                    'Fit_Params': None, 'Model': 'hill'}
+        else:
+            return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan,
+                    'Fit_Params': None, 'Model': 'two-site'}
 
-def find_kds(df, override=None, exclude_high=0):
+def find_kds(df, override=None, exclude_high=0, model='hill'):
     # Get reference Tm values
     wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
     edta_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 111)]['Tm'].iloc[0]
@@ -446,28 +483,16 @@ def find_kds(df, override=None, exclude_high=0):
             edta_errs_fit = metal_data['EDTA Tm Standard Error'].values
         
         # Fit WT Tm data
-        kd_wt, kd_wt_err, n_wt, n_wt_err, popt_wt = fit_binding_curve(concs_fit, wt_vals_fit, wt_errs_fit)
-        kd_list.append({
-            'Metal': metal,
-            'Temperature': 'WT',
-            'Kd': kd_wt,
-            'Kd_Error': kd_wt_err,
-            'Hill_n': n_wt,
-            'Hill_n_Error': n_wt_err,
-            'Fit_Params': popt_wt
-        })
+        fit_result = fit_binding_curve(concs_fit, wt_vals_fit, wt_errs_fit, model=model)
+        fit_result['Metal'] = metal
+        fit_result['Temperature'] = 'WT'
+        kd_list.append(fit_result)
         
         # Fit EDTA Tm data
-        kd_edta, kd_edta_err, n_edta, n_edta_err, popt_edta = fit_binding_curve(concs_fit, edta_vals_fit, edta_errs_fit)
-        kd_list.append({
-            'Metal': metal,
-            'Temperature': 'EDTA',
-            'Kd': kd_edta,
-            'Kd_Error': kd_edta_err,
-            'Hill_n': n_edta,
-            'Hill_n_Error': n_edta_err,
-            'Fit_Params': popt_edta
-        })
+        fit_result = fit_binding_curve(concs_fit, edta_vals_fit, edta_errs_fit, model=model)
+        fit_result['Metal'] = metal
+        fit_result['Temperature'] = 'EDTA'
+        kd_list.append(fit_result)
         
         # Fit override data if present
         if override is not None:
@@ -477,21 +502,15 @@ def find_kds(df, override=None, exclude_high=0):
             else:
                 override_vals_fit = 1 - metal_data['Override Tm'].values
                 override_errs_fit = metal_data['Override Tm Standard Error'].values
-            kd_override, kd_override_err, n_override, n_override_err, popt_override = fit_binding_curve(concs_fit, override_vals_fit, override_errs_fit)
-            kd_list.append({
-                'Metal': metal,
-                'Temperature': 'Override',
-                'Kd': kd_override,
-                'Kd_Error': kd_override_err,
-                'Hill_n': n_override,
-                'Hill_n_Error': n_override_err,
-                'Fit_Params': popt_override
-            })
+            fit_result = fit_binding_curve(concs_fit, override_vals_fit, override_errs_fit, model=model)
+            fit_result['Metal'] = metal
+            fit_result['Temperature'] = 'Override'
+            kd_list.append(fit_result)
     
     kd_results = pd.DataFrame(kd_list)
     return kd_df, kd_results
 
-def plot_kds(df, kd_results):
+def plot_kds(df, kd_results, model='hill'):
     # Check if override temperature data exists
     has_override = 'Override Temperature' in df.columns
     
@@ -523,28 +542,51 @@ def plot_kds(df, kd_results):
             
             color = metal_colors[metal]
             
-            # Get Kd and fit parameters from DataFrame
+            # Get fit parameters from DataFrame
             kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
             if not kd_row.empty:
-                kd = kd_row['Kd'].values[0]
-                kd_err = kd_row['Kd_Error'].values[0]
-                n = kd_row['Hill_n'].values[0]
-                n_err = kd_row['Hill_n_Error'].values[0]
                 popt = kd_row['Fit_Params'].values[0]
+                
+                if model == 'hill':
+                    kd = kd_row['Kd'].values[0]
+                    kd_err = kd_row['Kd_Error'].values[0]
+                    n = kd_row['Hill_n'].values[0]
+                    n_err = kd_row['Hill_n_Error'].values[0]
+                    
+                    # Create label with Kd and Hill coefficient
+                    if not np.isnan(kd):
+                        if kd < 1.0:
+                            kd_nm = kd * 1000
+                            kd_err_nm = kd_err * 1000
+                            label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}"
+                        else:
+                            label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}"
+                    else:
+                        label = f"{metal}: Kd=N/A"
+                        
+                elif model == 'two-site':
+                    kd1 = kd_row['Kd1'].values[0]
+                    kd1_err = kd_row['Kd1_Error'].values[0]
+                    kd2 = kd_row['Kd2'].values[0]
+                    kd2_err = kd_row['Kd2_Error'].values[0]
+                    
+                    # Create label with both Kd values
+                    if not np.isnan(kd1):
+                        # Format Kd1
+                        if kd1 < 1.0:
+                            kd1_str = f"{kd1*1000:.0f}±{kd1_err*1000:.0f} nM"
+                        else:
+                            kd1_str = f"{kd1:.1f}±{kd1_err:.1f} µM"
+                        # Format Kd2
+                        if kd2 < 1.0:
+                            kd2_str = f"{kd2*1000:.0f}±{kd2_err*1000:.0f} nM"
+                        else:
+                            kd2_str = f"{kd2:.1f}±{kd2_err:.1f} µM"
+                        label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}"
+                    else:
+                        label = f"{metal}: Kd=N/A"
             else:
-                kd, kd_err, n, n_err, popt = np.nan, np.nan, np.nan, np.nan, None
-            
-            # Create label with Kd and Hill coefficient (use nM if Kd < 1 µM)
-            if not np.isnan(kd):
-                if kd < 1.0:
-                    # Report in nM
-                    kd_nm = kd * 1000
-                    kd_err_nm = kd_err * 1000
-                    label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}"
-                else:
-                    # Report in µM
-                    label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}"
-            else:
+                popt = None
                 label = f"{metal}: Kd=N/A"
             
             # Plot data points
@@ -554,7 +596,10 @@ def plot_kds(df, kd_results):
             
             # Plot fitted curve
             if popt is not None:
-                fit_vals = binding_curve(conc_fit, *popt)
+                if model == 'hill':
+                    fit_vals = binding_curve_hill(conc_fit, *popt)
+                else:  # two-site
+                    fit_vals = binding_curve_two_site(conc_fit, *popt)
                 ax.plot(conc_fit, fit_vals, color=color, linestyle='-', 
                        linewidth=2, alpha=0.8, label=label)
             else:
