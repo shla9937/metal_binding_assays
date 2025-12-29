@@ -59,6 +59,7 @@ def main():
     parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
     parser.add_argument('-e', '--exclude', type=float, required=False, help="Name of protein")
     parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
+    parser.add_argument('-x', '--exclude_high', type=int, default=0, help="Number of highest concentrations to exclude from fitting")
     args = parser.parse_args()
 
     df = parse_csv_file(args.csv)
@@ -73,7 +74,7 @@ def main():
     # plot_df(avg_tm_df, 'Average Normalized Fluorescence', error_column='Standard Error')
     plot_df(avg_tm_df, 'Smoothed Fluorescence', error_column='Standard Error')
     # plot_tms(avg_tm_df)
-    titration_df, kd_results = find_kds(avg_tm_df, override=args.override)
+    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, exclude_high=args.exclude_high)
     print(kd_results)
     plot_kds(titration_df, kd_results)
 
@@ -309,30 +310,36 @@ def plot_tms(df):
     plt.savefig('tm_vs_concentration.png', dpi=300)
     plt.show()
 
-# Simple 1:1 binding equation (original)
+# Hill equation with cooperativity coefficient
+def binding_curve(conc, kd, ymin, ymax, n):
+    """Hill equation with Hill coefficient n for cooperativity"""
+    return ymin + (ymax - ymin) * conc**n / (kd**n + conc**n)
+
+# Simple 1:1 binding equation (Hill equation n=1)
 # def binding_curve(conc, kd, ymin, ymax):
 #     """Hill equation for 1:1 binding"""
 #     return ymin + (ymax - ymin) * conc / (kd + conc)
 
 # Quadratic binding equation (Bai et al. 2018) - accounts for ligand depletion
-def binding_curve(conc, kd, ymin, ymax):
-    """Quadratic binding equation accounting for ligand depletion"""
-    global protein_conc
-    Pt = protein_conc  # Total protein concentration in µM
-    Lt = conc  # Total ligand (metal) concentration in µM
-    
-    # Fraction bound = (([P]t + [L]t + Kd) - sqrt((([P]t + [L]t + Kd)^2 - 4[P]t[L]t))) / (2[P]t)
-    fraction_bound = ((Pt + Lt + kd) - np.sqrt((Pt + Lt + kd)**2 - 4*Pt*Lt)) / (2*Pt)
-    
-    return ymin + (ymax - ymin) * fraction_bound
+# def binding_curve(conc, kd, ymin, ymax):
+#     """Quadratic binding equation accounting for ligand depletion"""
+#     global protein_conc
+#     Pt = protein_conc  # Total protein concentration in µM
+#     Lt = conc  # Total ligand (metal) concentration in µM
+#     
+#     # Fraction bound = (([P]t + [L]t + Kd) - sqrt((([P]t + [L]t + Kd)^2 - 4[P]t[L]t))) / (2[P]t)
+#     fraction_bound = ((Pt + Lt + kd) - np.sqrt((Pt + Lt + kd)**2 - 4*Pt*Lt)) / (2*Pt)
+#     
+#     return ymin + (ymax - ymin) * fraction_bound
 
 def fit_binding_curve(concentrations, values, errors):
-    """Fit binding curve and return Kd with confidence interval"""
+    """Fit binding curve and return Kd, Hill coefficient with confidence intervals"""
     try:
         # Initial parameter guesses
         ymin_guess = np.min(values)
         ymax_guess = np.max(values)
         kd_guess = np.median(concentrations)
+        n_guess = 1.0  # Hill coefficient
         
         # Replace zero errors with small value to avoid division by zero
         errors = np.where(errors == 0, 1e-10, errors)
@@ -342,24 +349,25 @@ def fit_binding_curve(concentrations, values, errors):
             binding_curve, 
             concentrations, 
             values,
-            p0=[kd_guess, ymin_guess, ymax_guess],
+            p0=[kd_guess, ymin_guess, ymax_guess, n_guess],
             sigma=errors,
             absolute_sigma=True,
             maxfev=10000,
-            bounds=([0, 0, 0], [np.inf, 1, 1])
+            bounds=([0, 0, 0, 0.1], [np.inf, 1, 1, 5])  # Allow n from 0.1 to 5
         )
         
-        kd, ymin, ymax = popt
+        kd, ymin, ymax, n = popt
         
         # Calculate confidence intervals (95%)
         perr = np.sqrt(np.diag(pcov))
         kd_err = perr[0] * 1.96  # 95% CI
+        n_err = perr[3] * 1.96   # 95% CI for Hill coefficient
         
-        return kd, kd_err, popt
+        return kd, kd_err, n, n_err, popt
     except:
-        return np.nan, np.nan, None
+        return np.nan, np.nan, np.nan, np.nan, None
 
-def find_kds(df, override=None):
+def find_kds(df, override=None, exclude_high=0):
     # Get reference Tm values
     wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
     edta_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 111)]['Tm'].iloc[0]
@@ -416,42 +424,67 @@ def find_kds(df, override=None):
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
         concs = metal_data['Concentration'].values
         
-        # Convert to % folded (invert normalized fluorescence)
-        wt_vals = 1 - metal_data['WT Tm'].values
-        wt_errs = metal_data['WT Tm Standard Error'].values
-        edta_vals = 1 - metal_data['EDTA Tm'].values
-        edta_errs = metal_data['EDTA Tm Standard Error'].values
+        # Exclude highest concentrations if requested (but keep zero concentration)
+        if exclude_high > 0:
+            # Get indices to keep (exclude N highest non-zero concentrations)
+            non_zero_mask = concs > 0
+            sorted_indices = np.argsort(concs)
+            exclude_indices = sorted_indices[-(exclude_high):] if np.sum(non_zero_mask) > exclude_high else []
+            fit_mask = np.ones(len(concs), dtype=bool)
+            fit_mask[exclude_indices] = False
+            
+            concs_fit = concs[fit_mask]
+            wt_vals_fit = (1 - metal_data['WT Tm'].values)[fit_mask]
+            wt_errs_fit = metal_data['WT Tm Standard Error'].values[fit_mask]
+            edta_vals_fit = (1 - metal_data['EDTA Tm'].values)[fit_mask]
+            edta_errs_fit = metal_data['EDTA Tm Standard Error'].values[fit_mask]
+        else:
+            concs_fit = concs
+            wt_vals_fit = 1 - metal_data['WT Tm'].values
+            wt_errs_fit = metal_data['WT Tm Standard Error'].values
+            edta_vals_fit = 1 - metal_data['EDTA Tm'].values
+            edta_errs_fit = metal_data['EDTA Tm Standard Error'].values
         
         # Fit WT Tm data
-        kd_wt, kd_wt_err, popt_wt = fit_binding_curve(concs, wt_vals, wt_errs)
+        kd_wt, kd_wt_err, n_wt, n_wt_err, popt_wt = fit_binding_curve(concs_fit, wt_vals_fit, wt_errs_fit)
         kd_list.append({
             'Metal': metal,
             'Temperature': 'WT',
             'Kd': kd_wt,
             'Kd_Error': kd_wt_err,
+            'Hill_n': n_wt,
+            'Hill_n_Error': n_wt_err,
             'Fit_Params': popt_wt
         })
         
         # Fit EDTA Tm data
-        kd_edta, kd_edta_err, popt_edta = fit_binding_curve(concs, edta_vals, edta_errs)
+        kd_edta, kd_edta_err, n_edta, n_edta_err, popt_edta = fit_binding_curve(concs_fit, edta_vals_fit, edta_errs_fit)
         kd_list.append({
             'Metal': metal,
             'Temperature': 'EDTA',
             'Kd': kd_edta,
             'Kd_Error': kd_edta_err,
+            'Hill_n': n_edta,
+            'Hill_n_Error': n_edta_err,
             'Fit_Params': popt_edta
         })
         
         # Fit override data if present
         if override is not None:
-            override_vals = 1 - metal_data['Override Tm'].values
-            override_errs = metal_data['Override Tm Standard Error'].values
-            kd_override, kd_override_err, popt_override = fit_binding_curve(concs, override_vals, override_errs)
+            if exclude_high > 0:
+                override_vals_fit = (1 - metal_data['Override Tm'].values)[fit_mask]
+                override_errs_fit = metal_data['Override Tm Standard Error'].values[fit_mask]
+            else:
+                override_vals_fit = 1 - metal_data['Override Tm'].values
+                override_errs_fit = metal_data['Override Tm Standard Error'].values
+            kd_override, kd_override_err, n_override, n_override_err, popt_override = fit_binding_curve(concs_fit, override_vals_fit, override_errs_fit)
             kd_list.append({
                 'Metal': metal,
                 'Temperature': 'Override',
                 'Kd': kd_override,
                 'Kd_Error': kd_override_err,
+                'Hill_n': n_override,
+                'Hill_n_Error': n_override_err,
                 'Fit_Params': popt_override
             })
     
@@ -495,20 +528,22 @@ def plot_kds(df, kd_results):
             if not kd_row.empty:
                 kd = kd_row['Kd'].values[0]
                 kd_err = kd_row['Kd_Error'].values[0]
+                n = kd_row['Hill_n'].values[0]
+                n_err = kd_row['Hill_n_Error'].values[0]
                 popt = kd_row['Fit_Params'].values[0]
             else:
-                kd, kd_err, popt = np.nan, np.nan, None
+                kd, kd_err, n, n_err, popt = np.nan, np.nan, np.nan, np.nan, None
             
-            # Create label with Kd (use nM if Kd < 1 µM)
+            # Create label with Kd and Hill coefficient (use nM if Kd < 1 µM)
             if not np.isnan(kd):
                 if kd < 1.0:
                     # Report in nM
                     kd_nm = kd * 1000
                     kd_err_nm = kd_err * 1000
-                    label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM"
+                    label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}"
                 else:
                     # Report in µM
-                    label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM"
+                    label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}"
             else:
                 label = f"{metal}: Kd=N/A"
             
