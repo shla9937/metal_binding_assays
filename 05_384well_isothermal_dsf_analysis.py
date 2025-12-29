@@ -58,6 +58,7 @@ def main():
     parser.add_argument('-c', '--csv', type=str, required=True, help="Raw DSF values from DA2")
     parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
     parser.add_argument('-e', '--exclude', type=float, required=False, help="Name of protein")
+    parser.add_argument('-t', '--temperature', type=float, required=False, help="Override analysis temperature")
     args = parser.parse_args()
 
     df = parse_csv_file(args.csv)
@@ -72,7 +73,7 @@ def main():
     # plot_df(avg_tm_df, 'Average Normalized Fluorescence', error_column='Standard Error')
     plot_df(avg_tm_df, 'Smoothed Fluorescence', error_column='Standard Error')
     # plot_tms(avg_tm_df)
-    titration_df = find_kds(avg_tm_df)
+    titration_df = find_kds(avg_tm_df, override=args.temperature)
     plot_kds(titration_df)
 
 def parse_csv_file(csv):
@@ -307,7 +308,7 @@ def plot_tms(df):
     plt.savefig('tm_vs_concentration.png', dpi=300)
     plt.show()
 
-def find_kds(df):
+def find_kds(df, override=None):
     # Get reference Tm values
     wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
     edta_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 111)]['Tm'].iloc[0]
@@ -332,7 +333,7 @@ def find_kds(df):
         edta_fluor = smoothed_fluor[edta_idx]
         edta_se = std_err[edta_idx]
         
-        kd_data.append({
+        data_dict = {
             'Metal': metal,
             'Concentration': conc,
             'WT Tm Temperature': wt_tm,
@@ -341,13 +342,32 @@ def find_kds(df):
             'EDTA Tm Temperature': edta_tm,
             'EDTA Tm': edta_fluor,
             'EDTA Tm Standard Error': edta_se
-        })
+        }
+        
+        # Add override temperature data if provided
+        if override is not None:
+            override_idx = np.argmin(np.abs(temps - override))
+            override_fluor = smoothed_fluor[override_idx]
+            override_se = std_err[override_idx]
+            data_dict['Override Temperature'] = override
+            data_dict['Override Tm'] = override_fluor
+            data_dict['Override Tm Standard Error'] = override_se
+        
+        kd_data.append(data_dict)
     
     kd_df = pd.DataFrame(kd_data)
     return kd_df
 
 def plot_kds(df):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    # Check if override temperature data exists
+    has_override = 'Override Temperature' in df.columns
+    n_plots = 3 if has_override else 2
+    
+    fig, axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
+    if n_plots == 2:
+        ax1, ax2 = axes
+    else:
+        ax1, ax2, ax3 = axes
     
     # Get the actual temperature values
     wt_temp = df['WT Tm Temperature'].iloc[0]
@@ -390,6 +410,27 @@ def plot_kds(df):
     ax2.set_xscale('log')
     ax2.legend(fontsize=8)
     ax2.grid(True, alpha=0.3)
+    
+    # Plot 3: Override temperature titrations (if provided)
+    if has_override:
+        override_temp = df['Override Temperature'].iloc[0]
+        for metal in sorted(df['Metal'].unique()):
+            metal_data = df[df['Metal'] == metal].sort_values('Concentration')
+            concentrations = metal_data['Concentration'].values
+            override_values = metal_data['Override Tm'].values
+            override_errors = metal_data['Override Tm Standard Error'].values
+            
+            color = metal_colors[metal]
+            ax3.errorbar(concentrations, override_values, yerr=override_errors, 
+                        color=color, label=metal, marker='o', linestyle='-', 
+                        capsize=3, alpha=0.8)
+        
+        ax3.set_xlabel('Concentration (µM)', fontsize=10)
+        ax3.set_ylabel('Fluorescence', fontsize=10)
+        ax3.set_title(f'Titration at Override Temp ({override_temp:.1f}°C)', fontsize=11)
+        ax3.set_xscale('log')
+        ax3.legend(fontsize=8)
+        ax3.grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.savefig('metal_titrations.png', dpi=300)
