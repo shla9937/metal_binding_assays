@@ -11,47 +11,6 @@ from sklearn.preprocessing import MinMaxScaler
 from matplotlib.colors import Normalize
 import matplotlib.colors
 
-'''
-Inputs:
--   DSF raw data (CSV exported from DA2)
--   protein name
--   optional analysis temperature
--   optional exclusion temperature
-
-Hardcoded:
--   Titration concentrations
--   Protein concentration
--   Titration metals
--   Excluded points
-
-Outputs:
--   Raw series of each titration, single metal (not averaged, fit is smoothed) - 32 plots, shades of color
--   Noramlized series of each titration, single metal (normalized, averaged, fit is smoothed, calculate Tm of WT or EDTA) - 8 plots, shades of color 
--   Tm as a function of concentration, all metals (averaged, calculate Tm) - 1 plot, each different colors
--   Folded % as function of concentration, all metals (averaged) - 1 plot, each different colors
--   CSV of Kds for each metal (confidences)
--   CSV of df (temp, concentration, metal)
-
-Functions:
--   import csv -> create pd df
--   assign concentrations and identities
--   plot raw data 
--   normalize raw data
--   average
--   fit normalized curve
--   smooth normalized curve
--   calculate Tm
--   choose analysis temperature (Tm of WT)
--   plot normalized data (box at WT Tm)
--   plot concentration vs Tm (linear regression line)
--   extract normalized (and smoothed) values at analysis temp -> new pd df (conc vs fold %)
--   fit titration curve -> find Kd
--   plot titration curves (add Kds and analysis Tm)
--   output Kd values
--   output raw df 
--   output analyzed (fold % df)
-
-'''
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze 384 well DSF 8 metal, triplicate experiment.")
@@ -63,22 +22,21 @@ def main():
     parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site'], 
                         help="Binding model: 'hill' (Hill equation with n) or 'two-site' (two independent sites)")
     args = parser.parse_args()
-
+    
     df = parse_csv_file(args.csv)
     if args.exclude:
         df = exclude_temps(df, args.exclude)
     raw_df = assign_conc(df)
-    # plot_df(raw_df, 'Fluorescence')
     norm_df = normalize(raw_df)
-    # plot_df(norm_df, 'Normalized Fluorescence')
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
-    # plot_df(avg_tm_df, 'Average Normalized Fluorescence', error_column='Standard Error')
-    plot_df(avg_tm_df, 'Smoothed Fluorescence', error_column='Standard Error')
-    # plot_tms(avg_tm_df)
     titration_df, kd_results = find_kds(avg_tm_df, override=args.override, exclude_high=args.exclude_high, model=args.model)
-    print(kd_results)
-    plot_kds(titration_df, kd_results, model=args.model)
+    plot_df(raw_df, 'Fluorescence', args.protein)
+    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error')
+    plot_tms(avg_tm_df, args.protein)
+    plot_kds(titration_df, kd_results, args.protein, model=args.model)
+    plot_kd_bars(titration_df, kd_results, args.protein, model=args.model)
+    save_results_csv(titration_df, kd_results, args.protein)
 
 def parse_csv_file(csv):
     with open(csv, 'r') as f:
@@ -112,15 +70,15 @@ def assign_conc(df):
     concentrations = [1000, 333, 111, 37, 12.3, 4.1, 1.37, 0.457, 0.152, 0.051, 0.017, 0.006] # in µM (last well in EDTA is 0)
     rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
     metal_colors = {
-        "Mn²⁺": "#1f77b4",    # blue
-        "Fe³⁺": "#ff7f0e",    # orange
-        "Co²⁺": "#2ca02c",    # green
-        "Ni²⁺": "#d62728",    # red
-        "Cu²⁺": "#9467bd",    # purple
-        "Nd³⁺": "#8c564b",    # brown
-        "Dy³⁺": "#e377c2",    # pink
-        "Mix": "#7f7f7f",     # gray
-        "EDTA": "#bcbd22"     # olive
+        "Mn²⁺": "#FF1493",    # deep pink
+        "Fe³⁺": "#FF8C00",    # dark orange
+        "Co²⁺": "#8B008B",    # dark magenta
+        "Ni²⁺": "#00C853",    # bright green
+        "Cu²⁺": "#1E90FF",    # dodger blue
+        "Nd³⁺": "#8A2BE2",    # blue violet
+        "Dy³⁺": "#FFD700",    # gold
+        "Mix": "#808080",     # gray
+        "EDTA": "#228B22"     # forest green
     }
 
     for row in rows:
@@ -137,14 +95,13 @@ def assign_conc(df):
                 df.loc[df['Well Position'] == well_pos, 'Concentration'] = concentrations[well-13]
     return df
 
-def plot_df(df, y_column, error_column=None):    
+def plot_df(df, y_column, protein_name, error_column=None):    
     # If error_column provided, use averaged data mode
     if error_column:
-        # Dynamically create subplot grid based on number of unique metals
         unique_metals = sorted(df['Metal'].unique())
         n_metals = len(unique_metals)
         n_cols = 4
-        n_rows = (n_metals + n_cols - 1) // n_cols  # Ceiling division
+        n_rows = (n_metals + n_cols - 1) // n_cols
         
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4 * n_rows))
         axes = axes.flatten()
@@ -152,51 +109,44 @@ def plot_df(df, y_column, error_column=None):
         for idx, metal in enumerate(unique_metals):
             ax = axes[idx]
             metal_data = df[df['Metal'] == metal]
-            
-            # Get unique concentrations for color gradient
             concentrations = sorted(metal_data['Concentration'].unique())
             
             for conc in concentrations:
                 conc_data = metal_data[metal_data['Concentration'] == conc].sort_values('Temperature')
                 conc_idx = concentrations.index(conc)
                 
-                # Use base metal color and vary brightness with concentration
                 color = matplotlib.colors.to_rgba(metal_colors[metal])
                 color = tuple(c * (0.3 + 0.7 * (1 - conc_idx / max(len(concentrations)-1, 1))) for c in color[:3]) + (color[3],)
                 
                 ax.errorbar(conc_data['Temperature'], conc_data[y_column], 
                         yerr=conc_data[error_column], label=f"{conc:.3g} µM", 
                         color=color, alpha=0.3)
-                
-                # Plot Tm as vertical line with same color gradient
-                tm_value = conc_data['Tm'].iloc[0]  # All rows in group have same Tm
-                ax.axvline(x=tm_value, color=color, linestyle='--', linewidth=1.5, alpha=0.6)
+            
+            wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
+            ax.axvline(x=wt_tm, color='black', linestyle='--', linewidth=1.5, alpha=0.8, label=f'WT Tm ({wt_tm:.1f}°C)')
             
             ax.set_xlabel('Temperature (°C)')
             ax.set_ylabel(y_column)
             ax.set_title(f"{metal}")
-            # ax.legend(fontsize=8)
             ax.grid(True, alpha=0.3)
-        
-        # Hide any unused subplots
+
         for idx in range(n_metals, len(axes)):
             axes[idx].axis('off')
+        
+        fig.suptitle(protein_name, fontsize=14, y=0.995)
     else:
-        # Raw data mode (original code)
         fig, axes = plt.subplots(8, 4, figsize=(16, 16))
         axes = axes.flatten()
-        
         plot_idx = 0
         
         for row in rows:
             for well_range, metal_list, label_suffix in [
                 (range(1, 13), metals_left, "Wells 1-12"),
-                (range(13, 25), metals_right, "Wells 13-24")
-            ]:
+                (range(13, 25), metals_right, "Wells 13-24")]:
+                
                 ax = axes[plot_idx]
                 metal = metal_list[rows.index(row)]
-                
-                # Get unique concentrations for color gradient
+
                 well_positions = [row + str(w) for w in well_range]
                 well_data_subset = df[df['Well Position'].isin(well_positions)]
                 concentrations = sorted(well_data_subset['Concentration'].unique())
@@ -218,9 +168,12 @@ def plot_df(df, y_column, error_column=None):
                 ax.set_title(f"Row {row} - {metal} ({label_suffix})")
                 ax.grid(True, alpha=0.3)
                 plot_idx += 1
+        
+        fig.suptitle(protein_name, fontsize=14, y=0.995)
     
     plt.tight_layout()
-    plt.savefig(f"{y_column.lower().replace(' ', '_')}_melt_curves.png", dpi=150)
+    protein_lower = protein_name.lower()
+    plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.png", dpi=150)
     plt.show()
 
 def normalize(df):
@@ -249,7 +202,7 @@ def find_tms(df):
         fluor = group['Average Normalized Fluorescence'].values
         
         # Smooth the fluorescence data using Savitzky-Golay filter
-        window_length = min(len(fluor), 51)  # Use odd window length, max 7
+        window_length = min(len(fluor), 51)
         if window_length % 2 == 0:
             window_length -= 1
         if window_length >= 5:
@@ -277,10 +230,8 @@ def find_tms(df):
 
     return df
 
-def plot_tms(df):
+def plot_tms(df, protein_name):
     fig, ax = plt.subplots(figsize=(4, 3))
-    
-    # Get unique metal-concentration combinations with their Tm values
     tm_data = df.groupby(['Metal', 'Concentration'])['Tm'].first().reset_index()
     
     for metal in sorted(tm_data['Metal'].unique()):
@@ -289,45 +240,37 @@ def plot_tms(df):
         tms = metal_df['Tm'].values
         
         color = metal_colors[metal]
-        
-        # Plot the data points
         ax.scatter(concentrations, tms, color=color, label=metal, s=50, alpha=0.7)
         
-        # Fit linear regression
         coeffs = np.polyfit(concentrations, tms, 1)
         fit_line = np.poly1d(coeffs)
         
-        # Plot the fitted line
         conc_range = np.linspace(concentrations.min(), concentrations.max(), 100)
         ax.plot(conc_range, fit_line(conc_range), color=color, linestyle='-', linewidth=2, alpha=0.8)
     
     ax.set_xlabel('Concentration (µM)', fontsize=8)
     ax.set_ylabel('Tm (°C)', fontsize=8)
     ax.set_title('Tm vs Concentration', fontsize=8)
-    ax.set_xscale('log')
+    # ax.set_xscale('log')
     ax.legend(fontsize=6)
     ax.grid(True, alpha=0.3)
     
+    fig.suptitle(protein_name, fontsize=10, y=0.98)
+    
     plt.tight_layout()
-    plt.savefig('tm_vs_concentration.png', dpi=300)
+    protein_lower = protein_name.lower()
+    plt.savefig(f'{protein_lower}_tm_vs_concentration.png', dpi=300)
     plt.show()
 
-# Hill equation with cooperativity coefficient
 def binding_curve_hill(conc, kd, ymin, ymax, n):
     """Hill equation with Hill coefficient n for cooperativity"""
     return ymin + (ymax - ymin) * conc**n / (kd**n + conc**n)
 
-# Two independent binding sites
 def binding_curve_two_site(conc, kd1, kd2, ymin, ymax):
     """Two independent binding sites with different affinities"""
     site1 = conc / (kd1 + conc)
     site2 = conc / (kd2 + conc)
     return ymin + (ymax - ymin) * 0.5 * (site1 + site2)
-
-# Simple 1:1 binding equation (Hill equation n=1)
-# def binding_curve(conc, kd, ymin, ymax):
-#     """Hill equation for 1:1 binding"""
-#     return ymin + (ymax - ymin) * conc / (kd + conc)
 
 # Quadratic binding equation (Bai et al. 2018) - accounts for ligand depletion
 # def binding_curve(conc, kd, ymin, ymax):
@@ -374,8 +317,8 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
         
         elif model == 'two-site':
             # Two independent binding sites
-            kd1_guess = kd_guess * 0.1  # Higher affinity site
-            kd2_guess = kd_guess * 10   # Lower affinity site
+            kd1_guess = kd_guess * 0.1  
+            kd2_guess = kd_guess * 10 
             popt, pcov = curve_fit(
                 binding_curve_two_site, 
                 concentrations, 
@@ -390,7 +333,7 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             perr = np.sqrt(np.diag(pcov))
             kd1_err = perr[0] * 1.96
             kd2_err = perr[1] * 1.96
-            # Sort Kd values so Kd1 is always the tighter binding
+            
             if kd1 > kd2:
                 kd1, kd2 = kd2, kd1
                 kd1_err, kd2_err = kd2_err, kd1_err
@@ -405,42 +348,27 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
                     'Fit_Params': None, 'Model': 'two-site'}
 
 def find_kds(df, override=None, exclude_high=0, model='hill'):
-    # Get reference Tm values
     wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
-    edta_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 111)]['Tm'].iloc[0]
-    
-    # Create new dataframe to hold results
     kd_data = []
     
-    # For each metal-concentration combination
     for (metal, conc), group in df.groupby(['Metal', 'Concentration']):
         group = group.sort_values('Temperature')
         temps = group['Temperature'].values
         smoothed_fluor = group['Smoothed Fluorescence'].values
         std_err = group['Standard Error'].values
         
-        # Find temperature closest to WT Tm
         wt_idx = np.argmin(np.abs(temps - wt_tm))
         wt_fluor = smoothed_fluor[wt_idx]
         wt_se = std_err[wt_idx]
-        
-        # Find temperature closest to EDTA Tm
-        edta_idx = np.argmin(np.abs(temps - edta_tm))
-        edta_fluor = smoothed_fluor[edta_idx]
-        edta_se = std_err[edta_idx]
         
         data_dict = {
             'Metal': metal,
             'Concentration': conc,
             'WT Tm Temperature': wt_tm,
             'WT Tm': wt_fluor,
-            'WT Tm Standard Error': wt_se,
-            'EDTA Tm Temperature': edta_tm,
-            'EDTA Tm': edta_fluor,
-            'EDTA Tm Standard Error': edta_se
+            'WT Tm Standard Error': wt_se
         }
         
-        # Add override temperature data if provided
         if override is not None:
             override_idx = np.argmin(np.abs(temps - override))
             override_fluor = smoothed_fluor[override_idx]
@@ -452,18 +380,13 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
         kd_data.append(data_dict)
     
     kd_df = pd.DataFrame(kd_data)
-    
-    # Now fit binding curves for each metal at each temperature
-    # Store Kd values in a list to convert to DataFrame
     kd_list = []
     
     for metal in kd_df['Metal'].unique():
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
         concs = metal_data['Concentration'].values
         
-        # Exclude highest concentrations if requested (but keep zero concentration)
         if exclude_high > 0:
-            # Get indices to keep (exclude N highest non-zero concentrations)
             non_zero_mask = concs > 0
             sorted_indices = np.argsort(concs)
             exclude_indices = sorted_indices[-(exclude_high):] if np.sum(non_zero_mask) > exclude_high else []
@@ -473,28 +396,16 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
             concs_fit = concs[fit_mask]
             wt_vals_fit = (1 - metal_data['WT Tm'].values)[fit_mask]
             wt_errs_fit = metal_data['WT Tm Standard Error'].values[fit_mask]
-            edta_vals_fit = (1 - metal_data['EDTA Tm'].values)[fit_mask]
-            edta_errs_fit = metal_data['EDTA Tm Standard Error'].values[fit_mask]
         else:
             concs_fit = concs
             wt_vals_fit = 1 - metal_data['WT Tm'].values
             wt_errs_fit = metal_data['WT Tm Standard Error'].values
-            edta_vals_fit = 1 - metal_data['EDTA Tm'].values
-            edta_errs_fit = metal_data['EDTA Tm Standard Error'].values
         
-        # Fit WT Tm data
         fit_result = fit_binding_curve(concs_fit, wt_vals_fit, wt_errs_fit, model=model)
         fit_result['Metal'] = metal
         fit_result['Temperature'] = 'WT'
         kd_list.append(fit_result)
         
-        # Fit EDTA Tm data
-        fit_result = fit_binding_curve(concs_fit, edta_vals_fit, edta_errs_fit, model=model)
-        fit_result['Metal'] = metal
-        fit_result['Temperature'] = 'EDTA'
-        kd_list.append(fit_result)
-        
-        # Fit override data if present
         if override is not None:
             if exclude_high > 0:
                 override_vals_fit = (1 - metal_data['Override Tm'].values)[fit_mask]
@@ -510,13 +421,10 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
     kd_results = pd.DataFrame(kd_list)
     return kd_df, kd_results
 
-def plot_kds(df, kd_results, model='hill'):
-    # Check if override temperature data exists
+def plot_kds(df, kd_results, protein_name, model='hill'):
     has_override = 'Override Temperature' in df.columns
     
-    # Define plot configurations
-    plot_configs = [('WT Tm', 'WT Tm Temperature', 'WT'),
-        ('EDTA Tm', 'EDTA Tm Temperature', 'EDTA')]
+    plot_configs = [('WT Tm', 'WT Tm Temperature', 'WT')]
     if has_override:
         plot_configs.append(('Override Tm', 'Override Temperature', 'Override'))
     
@@ -524,13 +432,11 @@ def plot_kds(df, kd_results, model='hill'):
     fig, axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
     if n_plots == 1:
         axes = [axes]
-    
-    # Concentration range for fitted curves (exclude zero)
+
     conc_min = df[df['Concentration'] > 0]['Concentration'].min()
     conc_max = df['Concentration'].max()
     conc_fit = np.logspace(np.log10(conc_min), np.log10(conc_max), 200)
-    
-    # Loop through each plot configuration
+
     for ax, (data_col, temp_col, kd_key) in zip(axes, plot_configs):
         temp_value = df[temp_col].iloc[0]
         
@@ -542,7 +448,6 @@ def plot_kds(df, kd_results, model='hill'):
             
             color = metal_colors[metal]
             
-            # Get fit parameters from DataFrame
             kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
             if not kd_row.empty:
                 popt = kd_row['Fit_Params'].values[0]
@@ -553,7 +458,6 @@ def plot_kds(df, kd_results, model='hill'):
                     n = kd_row['Hill_n'].values[0]
                     n_err = kd_row['Hill_n_Error'].values[0]
                     
-                    # Create label with Kd and Hill coefficient
                     if not np.isnan(kd):
                         if kd < 1.0:
                             kd_nm = kd * 1000
@@ -570,16 +474,13 @@ def plot_kds(df, kd_results, model='hill'):
                     kd2 = kd_row['Kd2'].values[0]
                     kd2_err = kd_row['Kd2_Error'].values[0]
                     
-                    # Create label with both Kd values
                     if not np.isnan(kd1):
-                        # Format Kd1
                         if kd1 < 1.0:
-                            kd1_str = f"{kd1*1000:.0f}±{kd1_err*1000:.0f} nM"
+                            kd1_str = f"{kd1*1000:.0f}±{kd1_err*1000:.1f} nM"
                         else:
                             kd1_str = f"{kd1:.1f}±{kd1_err:.1f} µM"
-                        # Format Kd2
                         if kd2 < 1.0:
-                            kd2_str = f"{kd2*1000:.0f}±{kd2_err*1000:.0f} nM"
+                            kd2_str = f"{kd2*1000:.0f}±{kd2_err*1000:.1f} nM"
                         else:
                             kd2_str = f"{kd2:.1f}±{kd2_err:.1f} µM"
                         label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}"
@@ -589,34 +490,130 @@ def plot_kds(df, kd_results, model='hill'):
                 popt = None
                 label = f"{metal}: Kd=N/A"
             
-            # Plot data points
             ax.errorbar(concentrations, values, yerr=errors, 
                        color=color, marker='o', linestyle='', 
                        capsize=3, alpha=0.7, markersize=6)
             
-            # Plot fitted curve
             if popt is not None:
                 if model == 'hill':
                     fit_vals = binding_curve_hill(conc_fit, *popt)
-                else:  # two-site
+                else:
                     fit_vals = binding_curve_two_site(conc_fit, *popt)
                 ax.plot(conc_fit, fit_vals, color=color, linestyle='-', 
                        linewidth=2, alpha=0.8, label=label)
             else:
-                ax.plot([], [], color=color, label=label)  # Just for legend
+                ax.plot([], [], color=color, label=label)
         
-        # Format axis
         ax.set_xlabel('Concentration (µM)', fontsize=10)
         ax.set_ylabel('% Folded', fontsize=10)
-        title_name = 'WT Tm' if kd_key == 'WT' else ('EDTA Tm' if kd_key == 'EDTA' else 'Override Temp')
+        title_name = 'WT Tm' if kd_key == 'WT' else 'Override Temp'
         ax.set_title(f'Titration at {title_name} ({temp_value:.1f}°C)', fontsize=11)
         ax.set_xscale('log')
         ax.legend(fontsize=7, loc='best')
         ax.grid(True, alpha=0.3)
     
+    fig.suptitle(protein_name, fontsize=12, y=0.995)
+    
     plt.tight_layout()
-    plt.savefig('metal_titrations.png', dpi=300)
+    protein_lower = protein_name.lower()
+    plt.savefig(f'{protein_lower}_metal_titrations.png', dpi=300)
     plt.show()
+
+def plot_kd_bars(df, kd_results, protein_name, model='hill'):
+    """Plot bar graph of inverse Kds for each metal"""
+    if model == 'hill':
+        valid_results = kd_results[~kd_results['Kd'].isna()].copy()
+    else:
+        valid_results = kd_results[~kd_results['Kd1'].isna()].copy()
+    
+    if valid_results.empty:
+        print("No valid Kd values to plot")
+        return
+    
+    # Get temperature value from dataframe
+    temp_value = df['WT Tm Temperature'].iloc[0]
+    
+    metals = sorted([m for m in valid_results['Metal'].unique() if m != 'EDTA'])
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    x_positions = np.arange(len(metals))
+    bar_width = 0.8
+    
+    if model == 'two-site':
+        bar_width = 0.4
+    
+    for metal_idx, metal in enumerate(metals):
+        metal_data = valid_results[valid_results['Metal'] == metal]
+        
+        if metal_data.empty:
+            continue
+        
+        base_color = metal_colors[metal]
+        x_pos = x_positions[metal_idx]
+        
+        if model == 'hill':
+            kd = metal_data['Kd'].values[0]
+            inverse_kd = 1 / kd if kd > 0 else 0
+            
+            ax.bar(x_pos, inverse_kd, bar_width,
+                   color=base_color, edgecolor='black', linewidth=1)
+        
+        else:  # two-site
+            kd1 = metal_data['Kd1'].values[0]
+            kd2 = metal_data['Kd2'].values[0]
+            
+            inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
+            base_rgb = matplotlib.colors.to_rgba(base_color)
+            lighter_color = tuple(c * 0.5 + 0.5 for c in base_rgb[:3]) + (base_rgb[3],)
+            inverse_kd2 = 1 / kd2 if kd2 > 0 else 0
+            
+            offset = bar_width * 0.55
+            ax.bar(x_pos - offset, inverse_kd1, bar_width,
+                   color=base_color, edgecolor='black', linewidth=1,
+                   label='Site 1' if metal_idx == 0 else '')
+            ax.bar(x_pos + offset, inverse_kd2, bar_width,
+                   color=lighter_color, edgecolor='black', linewidth=1,
+                   label='Site 2' if metal_idx == 0 else '')
+    
+    ax.set_ylabel('Binding Affinity (1/Kd, µM⁻¹)', fontsize=12)
+    ax.set_yscale('log')
+    ax.set_xlabel('Metal', fontsize=12)
+    ax.set_title(f'DSF Binding Affinity for {protein_name} at {temp_value:.1f}°C', pad=20)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(metals, rotation=0)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    if model == 'two-site':
+        ax.legend(fontsize=9, loc='best')
+    
+    plt.tight_layout()
+    protein_lower = protein_name.lower()
+    plt.savefig(f'{protein_lower}_kd_bar_chart.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def save_results_csv(titration_df, kd_results, protein_name):
+    """Save titration and Kd results to CSV files"""
+    protein_lower = protein_name.lower()
+    titration_df.to_csv(f'{protein_lower}_titration_data.csv', index=False)
+    
+    # Reorder kd_results columns and convert superscripts
+    kd_results_export = kd_results.copy()
+    kd_results_export['Metal'] = kd_results_export['Metal'].str.replace('²⁺', '2+').str.replace('³⁺', '3+')
+    
+    # Convert 'WT' and 'Override' labels to actual temperature values
+    wt_temp = titration_df['WT Tm Temperature'].iloc[0]
+    kd_results_export.loc[kd_results_export['Temperature'] == 'WT', 'Temperature'] = wt_temp
+    if 'Override Temperature' in titration_df.columns:
+        override_temp = titration_df['Override Temperature'].iloc[0]
+        kd_results_export.loc[kd_results_export['Temperature'] == 'Override', 'Temperature'] = override_temp
+    
+    cols = kd_results_export.columns.tolist()
+    cols.remove('Metal')
+    cols.remove('Temperature')
+    kd_results_export = kd_results_export[['Metal', 'Temperature'] + cols]
+    kd_results_export.to_csv(f'{protein_lower}_kd_results.csv', index=False)
 
 if __name__ == '__main__':
     main()
