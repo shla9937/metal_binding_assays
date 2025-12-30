@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze 384 well DSF 8 metal, triplicate experiment.")
     parser.add_argument('-c', '--csv', type=str, required=True, help="Raw DSF values from DA2")
     parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
-    parser.add_argument('-e', '--exclude', type=float, required=False, help="Name of protein")
+    parser.add_argument('-e', '--exclude', type=float, required=False, help="Exclude temps over this value")
     parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
     parser.add_argument('-x', '--exclude_high', type=int, default=0, help="Number of highest concentrations to exclude from fitting")
     parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site'], 
@@ -95,10 +95,30 @@ def assign_conc(df):
                 df.loc[df['Well Position'] == well_pos, 'Concentration'] = concentrations[well-13]
     return df
 
+# Atomic number sorting helper
+def get_atomic_number(metal_name):
+    """Get atomic number for sorting metals"""
+    atomic_numbers = {
+        'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10,
+        'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18,
+        'K': 19, 'Ca': 20, 'Sc': 21, 'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25, 'Fe': 26,
+        'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30, 'Ga': 31, 'Ge': 32, 'As': 33, 'Se': 34,
+        'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41, 'Mo': 42,
+        'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49, 'Sn': 50,
+        'Sb': 51, 'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55, 'Ba': 56, 'La': 57, 'Ce': 58,
+        'Pr': 59, 'Nd': 60, 'Pm': 61, 'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65, 'Dy': 66,
+        'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71, 'Hf': 72, 'Ta': 73, 'W': 74,
+        'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81, 'Pb': 82,
+        'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89, 'Th': 90,
+        'Pa': 91, 'U': 92
+    }
+    element = ''.join(c for c in metal_name if c.isalpha())
+    return atomic_numbers.get(element, 999)
+
 def plot_df(df, y_column, protein_name, error_column=None):    
     # If error_column provided, use averaged data mode
     if error_column:
-        unique_metals = sorted(df['Metal'].unique())
+        unique_metals = sorted(df['Metal'].unique(), key=get_atomic_number)
         n_metals = len(unique_metals)
         n_cols = 4
         n_rows = (n_metals + n_cols - 1) // n_cols
@@ -234,7 +254,7 @@ def plot_tms(df, protein_name):
     fig, ax = plt.subplots(figsize=(4, 3))
     tm_data = df.groupby(['Metal', 'Concentration'])['Tm'].first().reset_index()
     
-    for metal in sorted(tm_data['Metal'].unique()):
+    for metal in sorted(tm_data['Metal'].unique(), key=get_atomic_number):
         metal_df = tm_data[tm_data['Metal'] == metal].sort_values('Concentration')
         concentrations = metal_df['Concentration'].values
         tms = metal_df['Tm'].values
@@ -312,8 +332,15 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             perr = np.sqrt(np.diag(pcov))
             kd_err = perr[0] * 1.96
             n_err = perr[3] * 1.96
+            
+            # Calculate R²
+            y_pred = binding_curve_hill(concentrations, *popt)
+            ss_res = np.sum((values - y_pred)**2)
+            ss_tot = np.sum((values - np.mean(values))**2)
+            r_squared = 1 - (ss_res / ss_tot)
+            
             return {'Kd': kd, 'Kd_Error': kd_err, 'Hill_n': n, 'Hill_n_Error': n_err, 
-                    'Fit_Params': popt, 'Model': 'hill'}
+                    'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'hill'}
         
         elif model == 'two-site':
             # Two independent binding sites
@@ -337,15 +364,22 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             if kd1 > kd2:
                 kd1, kd2 = kd2, kd1
                 kd1_err, kd2_err = kd2_err, kd1_err
+            
+            # Calculate R²
+            y_pred = binding_curve_two_site(concentrations, *popt)
+            ss_res = np.sum((values - y_pred)**2)
+            ss_tot = np.sum((values - np.mean(values))**2)
+            r_squared = 1 - (ss_res / ss_tot)
+            
             return {'Kd1': kd1, 'Kd1_Error': kd1_err, 'Kd2': kd2, 'Kd2_Error': kd2_err,
-                    'Fit_Params': popt, 'Model': 'two-site'}
+                    'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'two-site'}
     except:
         if model == 'hill':
             return {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan, 
-                    'Fit_Params': None, 'Model': 'hill'}
+                    'R_squared': np.nan, 'Fit_Params': None, 'Model': 'hill'}
         else:
             return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan,
-                    'Fit_Params': None, 'Model': 'two-site'}
+                    'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
 
 def find_kds(df, override=None, exclude_high=0, model='hill'):
     wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
@@ -402,6 +436,30 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
             wt_errs_fit = metal_data['WT Tm Standard Error'].values
         
         fit_result = fit_binding_curve(concs_fit, wt_vals_fit, wt_errs_fit, model=model)
+        
+        # Quality control: reject fits with poor R² or low amplitude (non-binding)
+        r2_threshold = 0.7
+        amplitude_threshold = 0.1
+        
+        if not np.isnan(fit_result['R_squared']):
+            if model == 'hill':
+                ymin, ymax = fit_result['Fit_Params'][1], fit_result['Fit_Params'][2]
+            else:  # two-site
+                ymin, ymax = fit_result['Fit_Params'][2], fit_result['Fit_Params'][3]
+            
+            amplitude = abs(ymax - ymin)
+            
+            # Mark as N/A if R² is too low or amplitude is too small
+            if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
+                if model == 'hill':
+                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
+                                 'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
+                                 'Fit_Params': None, 'Model': 'hill'}
+                else:
+                    fit_result = {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan,
+                                 'Kd2_Error': np.nan, 'R_squared': fit_result['R_squared'],
+                                 'Fit_Params': None, 'Model': 'two-site'}
+        
         fit_result['Metal'] = metal
         fit_result['Temperature'] = 'WT'
         kd_list.append(fit_result)
@@ -414,6 +472,27 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
                 override_vals_fit = 1 - metal_data['Override Tm'].values
                 override_errs_fit = metal_data['Override Tm Standard Error'].values
             fit_result = fit_binding_curve(concs_fit, override_vals_fit, override_errs_fit, model=model)
+            
+            # Quality control: reject fits with poor R² or low amplitude (non-binding)
+            if not np.isnan(fit_result['R_squared']):
+                if model == 'hill':
+                    ymin, ymax = fit_result['Fit_Params'][1], fit_result['Fit_Params'][2]
+                else:  # two-site
+                    ymin, ymax = fit_result['Fit_Params'][2], fit_result['Fit_Params'][3]
+                
+                amplitude = abs(ymax - ymin)
+                
+                # Mark as N/A if R² is too low or amplitude is too small
+                if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
+                    if model == 'hill':
+                        fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
+                                     'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
+                                     'Fit_Params': None, 'Model': 'hill'}
+                    else:
+                        fit_result = {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan,
+                                     'Kd2_Error': np.nan, 'R_squared': fit_result['R_squared'],
+                                     'Fit_Params': None, 'Model': 'two-site'}
+            
             fit_result['Metal'] = metal
             fit_result['Temperature'] = 'Override'
             kd_list.append(fit_result)
@@ -440,7 +519,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
     for ax, (data_col, temp_col, kd_key) in zip(axes, plot_configs):
         temp_value = df[temp_col].iloc[0]
         
-        for metal in sorted(df['Metal'].unique()):
+        for metal in sorted(df['Metal'].unique(), key=get_atomic_number):
             metal_data = df[df['Metal'] == metal].sort_values('Concentration')
             concentrations = metal_data['Concentration'].values
             values = 1 - metal_data[data_col].values  # Convert to % folded
@@ -457,14 +536,15 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                     kd_err = kd_row['Kd_Error'].values[0]
                     n = kd_row['Hill_n'].values[0]
                     n_err = kd_row['Hill_n_Error'].values[0]
+                    r2 = kd_row['R_squared'].values[0]
                     
                     if not np.isnan(kd):
                         if kd < 1.0:
                             kd_nm = kd * 1000
                             kd_err_nm = kd_err * 1000
-                            label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}"
+                            label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}, R²={r2:.3f}"
                         else:
-                            label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}"
+                            label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}, R²={r2:.3f}"
                     else:
                         label = f"{metal}: Kd=N/A"
                         
@@ -473,6 +553,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                     kd1_err = kd_row['Kd1_Error'].values[0]
                     kd2 = kd_row['Kd2'].values[0]
                     kd2_err = kd_row['Kd2_Error'].values[0]
+                    r2 = kd_row['R_squared'].values[0]
                     
                     if not np.isnan(kd1):
                         if kd1 < 1.0:
@@ -483,7 +564,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                             kd2_str = f"{kd2*1000:.0f}±{kd2_err*1000:.1f} nM"
                         else:
                             kd2_str = f"{kd2:.1f}±{kd2_err:.1f} µM"
-                        label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}"
+                        label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}, R²={r2:.3f}"
                     else:
                         label = f"{metal}: Kd=N/A"
             else:
@@ -521,30 +602,32 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
 
 def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     """Plot bar graph of inverse Kds for each metal"""
-    if model == 'hill':
-        valid_results = kd_results[~kd_results['Kd'].isna()].copy()
+    # Determine which temperature to use (Override if present, otherwise WT)
+    has_override = 'Override Temperature' in df.columns
+    if has_override:
+        temp_value = df['Override Temperature'].iloc[0]
+        temp_key = 'Override'
     else:
-        valid_results = kd_results[~kd_results['Kd1'].isna()].copy()
+        temp_value = df['WT Tm Temperature'].iloc[0]
+        temp_key = 'WT'
     
-    if valid_results.empty:
-        print("No valid Kd values to plot")
-        return
+    # Filter kd_results for the selected temperature
+    kd_results_filtered = kd_results[kd_results['Temperature'] == temp_key].copy()
     
-    # Get temperature value from dataframe
-    temp_value = df['WT Tm Temperature'].iloc[0]
-    
-    metals = sorted([m for m in valid_results['Metal'].unique() if m != 'EDTA'])
+    # Get all metals and sort by atomic number
+    all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Mix']]
+    all_metals = sorted(all_metals, key=get_atomic_number)
 
     fig, ax = plt.subplots(figsize=(12, 6))
     
-    x_positions = np.arange(len(metals))
+    x_positions = np.arange(len(all_metals))
     bar_width = 0.8
     
     if model == 'two-site':
         bar_width = 0.4
     
-    for metal_idx, metal in enumerate(metals):
-        metal_data = valid_results[valid_results['Metal'] == metal]
+    for metal_idx, metal in enumerate(all_metals):
+        metal_data = kd_results_filtered[kd_results_filtered['Metal'] == metal]
         
         if metal_data.empty:
             continue
@@ -554,36 +637,118 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
         
         if model == 'hill':
             kd = metal_data['Kd'].values[0]
+            kd_err = metal_data['Kd_Error'].values[0]
+            
+            # Set N.B. (no binding) to 10^-4 if Kd is NA
+            if np.isnan(kd):
+                ax.bar(x_pos, 1e-4, bar_width,
+                       color=base_color, edgecolor='black', linewidth=1,
+                       alpha=0.5, hatch='//')
+                ax.text(x_pos, 1e-4 * 1.5, 'N.B.', ha='center', va='bottom',
+                       fontsize=10, fontweight='bold', color='black')
+                continue
+            
             inverse_kd = 1 / kd if kd > 0 else 0
+            
+            # Asymmetric error bars for inverse (appropriate for log scale)
+            if kd > 0 and kd_err > 0:
+                lower_kd = max(kd - kd_err, kd * 0.01)  # Prevent negative or zero Kd
+                upper_kd = kd + kd_err
+                inverse_upper = 1 / lower_kd  # Higher Kd gives lower inverse
+                inverse_lower = 1 / upper_kd  # Lower Kd gives higher inverse
+                yerr_lower = inverse_kd - inverse_lower
+                yerr_upper = inverse_upper - inverse_kd
+            else:
+                yerr_lower = 0
+                yerr_upper = 0
             
             ax.bar(x_pos, inverse_kd, bar_width,
                    color=base_color, edgecolor='black', linewidth=1)
+            ax.errorbar(x_pos, inverse_kd, yerr=[[yerr_lower], [yerr_upper]],
+                       fmt='none', ecolor='black', capsize=5, capthick=2)
         
         else:  # two-site
             kd1 = metal_data['Kd1'].values[0]
+            kd1_err = metal_data['Kd1_Error'].values[0]
             kd2 = metal_data['Kd2'].values[0]
+            kd2_err = metal_data['Kd2_Error'].values[0]
+            
+            if np.isnan(kd1):
+                ax.bar(x_pos, 1e-4, bar_width,
+                       color=base_color, edgecolor='black', linewidth=1,
+                       alpha=0.5, hatch='//')
+                ax.text(x_pos, 1e-4 * 1.1, 'N.B.', ha='center', va='bottom',
+                       fontsize=10, fontweight='bold', color='black')
+                continue
             
             inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
+            inverse_kd2 = 1 / kd2 if kd2 > 0 else 0
+            
+            # Asymmetric error bars for inverse Kd1
+            if kd1 > 0 and kd1_err > 0:
+                lower_kd1 = max(kd1 - kd1_err, kd1 * 0.01)
+                upper_kd1 = kd1 + kd1_err
+                inverse_upper1 = 1 / lower_kd1
+                inverse_lower1 = 1 / upper_kd1
+                yerr_lower1 = inverse_kd1 - inverse_lower1
+                yerr_upper1 = inverse_upper1 - inverse_kd1
+            else:
+                yerr_lower1 = 0
+                yerr_upper1 = 0
+            
+            # Asymmetric error bars for inverse Kd2
+            if kd2 > 0 and kd2_err > 0:
+                lower_kd2 = max(kd2 - kd2_err, kd2 * 0.01)
+                upper_kd2 = kd2 + kd2_err
+                inverse_upper2 = 1 / lower_kd2
+                inverse_lower2 = 1 / upper_kd2
+                yerr_lower2 = inverse_kd2 - inverse_lower2
+                yerr_upper2 = inverse_upper2 - inverse_kd2
+            else:
+                yerr_lower2 = 0
+                yerr_upper2 = 0
+            
             base_rgb = matplotlib.colors.to_rgba(base_color)
             lighter_color = tuple(c * 0.5 + 0.5 for c in base_rgb[:3]) + (base_rgb[3],)
-            inverse_kd2 = 1 / kd2 if kd2 > 0 else 0
             
             offset = bar_width * 0.55
             ax.bar(x_pos - offset, inverse_kd1, bar_width,
                    color=base_color, edgecolor='black', linewidth=1,
                    label='Site 1' if metal_idx == 0 else '')
+            ax.errorbar(x_pos - offset, inverse_kd1, yerr=[[yerr_lower1], [yerr_upper1]],
+                       fmt='none', ecolor='black', capsize=5, capthick=2)
             ax.bar(x_pos + offset, inverse_kd2, bar_width,
                    color=lighter_color, edgecolor='black', linewidth=1,
                    label='Site 2' if metal_idx == 0 else '')
+            ax.errorbar(x_pos + offset, inverse_kd2, yerr=[[yerr_lower2], [yerr_upper2]],
+                       fmt='none', ecolor='black', capsize=5, capthick=2)
     
-    ax.set_ylabel('Binding Affinity (1/Kd, µM⁻¹)', fontsize=12)
+    ax.set_ylabel('Kd (M)', fontsize=12)
     ax.set_yscale('log')
+    ax.set_ylim(10e-5,1000)
     ax.set_xlabel('Metal', fontsize=12)
     ax.set_title(f'DSF Binding Affinity for {protein_name} at {temp_value:.1f}°C', pad=20)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(metals, rotation=0)
+    ax.set_xticklabels(all_metals, rotation=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+    
+    # Replace y-tick labels with Kd values in log10 format (convert µM to M)
+    yticks = ax.get_yticks()
+    kd_labels = []
+    for tick in yticks:
+        if tick > 0:
+            kd_val_um = 1/tick  # Kd in µM
+            kd_val_m = kd_val_um / 1e6  # Convert to M
+            log_kd = np.log10(kd_val_m)
+            # Format as 10^x with superscript
+            if log_kd == int(log_kd):
+                kd_labels.append(f'10$^{{{int(log_kd)}}}$')
+            else:
+                kd_labels.append(f'10$^{{{log_kd:.1f}}}$')
+        else:
+            kd_labels.append('∞')
+    ax.set_yticklabels(kd_labels)
     
     if model == 'two-site':
         ax.legend(fontsize=9, loc='best')
