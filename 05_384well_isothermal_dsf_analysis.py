@@ -35,6 +35,7 @@ def main():
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error')
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
+    plot_kds_mn_only(titration_df, kd_results, args.protein, model=args.model)  # TEMPORARY - remove later
     plot_kd_bars(titration_df, kd_results, args.protein, model=args.model)
     save_results_csv(titration_df, kd_results, args.protein)
 
@@ -145,15 +146,16 @@ def plot_df(df, y_column, protein_name, error_column=None):
             wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
             ax.axvline(x=wt_tm, color='black', linestyle='--', linewidth=1.5, alpha=0.8, label=f'WT Tm ({wt_tm:.1f}°C)')
             
-            ax.set_xlabel('Temperature (°C)')
-            ax.set_ylabel(y_column)
-            ax.set_title(f"{metal}")
+            ax.set_xlabel('Temperature (°C)', fontsize=10)
+            ax.set_ylabel(y_column, fontsize=10)
+            ax.set_title(f"{metal}", fontsize=11)
+            #ax.legend(fontsize=7)
             ax.grid(True, alpha=0.3)
 
         for idx in range(n_metals, len(axes)):
             axes[idx].axis('off')
         
-        fig.suptitle(protein_name, fontsize=14, y=0.995)
+        fig.suptitle(protein_name, fontsize=12, y=0.995)
     else:
         fig, axes = plt.subplots(8, 4, figsize=(16, 16))
         axes = axes.flatten()
@@ -600,6 +602,113 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
     plt.savefig(f'{protein_lower}_metal_titrations.png', dpi=300)
     plt.show()
 
+# TEMPORARY FUNCTION - REMOVE LATER
+def plot_kds_mn_only(df, kd_results, protein_name, model='hill'):
+    """Plot Kd titration curve for Mn²⁺ only"""
+    has_override = 'Override Temperature' in df.columns
+    
+    plot_configs = [('WT Tm', 'WT Tm Temperature', 'WT')]
+    if has_override:
+        plot_configs.append(('Override Tm', 'Override Temperature', 'Override'))
+    
+    n_plots = len(plot_configs)
+    fig, axes = plt.subplots(1, n_plots, figsize=(3, 3))
+    if n_plots == 1:
+        axes = [axes]
+
+    conc_min = df[df['Concentration'] > 0]['Concentration'].min()
+    conc_max = df['Concentration'].max()
+    conc_fit = np.logspace(np.log10(conc_min), np.log10(conc_max), 200)
+
+    for ax, (data_col, temp_col, kd_key) in zip(axes, plot_configs):
+        temp_value = df[temp_col].iloc[0]
+        
+        # Only plot Mn²⁺
+        metal = 'Mn²⁺'
+        if metal not in df['Metal'].unique():
+            continue
+            
+        metal_data = df[df['Metal'] == metal].sort_values('Concentration')
+        concentrations = metal_data['Concentration'].values
+        values = 1 - metal_data[data_col].values
+        errors = metal_data[f'{data_col} Standard Error'].values
+        
+        color = metal_colors[metal]
+        
+        kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
+        if not kd_row.empty:
+            popt = kd_row['Fit_Params'].values[0]
+            
+            if model == 'hill':
+                kd = kd_row['Kd'].values[0]
+                kd_err = kd_row['Kd_Error'].values[0]
+                n = kd_row['Hill_n'].values[0]
+                n_err = kd_row['Hill_n_Error'].values[0]
+                r2 = kd_row['R_squared'].values[0]
+                
+                if not np.isnan(kd):
+                    if kd < 1.0:
+                        kd_nm = kd * 1000
+                        kd_err_nm = kd_err * 1000
+                        label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}, R²={r2:.3f}"
+                    else:
+                        label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}, R²={r2:.3f}"
+                else:
+                    label = f"{metal}: Kd=N/A"
+                    
+            elif model == 'two-site':
+                kd1 = kd_row['Kd1'].values[0]
+                kd1_err = kd_row['Kd1_Error'].values[0]
+                kd2 = kd_row['Kd2'].values[0]
+                kd2_err = kd_row['Kd2_Error'].values[0]
+                r2 = kd_row['R_squared'].values[0]
+                
+                if not np.isnan(kd1):
+                    if kd1 < 1.0:
+                        kd1_str = f"{kd1*1000:.0f} nM"
+                    else:
+                        kd1_str = f"{kd1:.1f} µM"
+                    if kd2 < 1.0:
+                        kd2_str = f"{kd2*1000:.0f} nM"
+                    else:
+                        kd2_str = f"{kd2:.1f} µM"
+                    label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}, R²={r2:.3f}"
+                else:
+                    label = f"{metal}: Kd=N/A"
+        else:
+            popt = None
+            label = f"{metal}: Kd=N/A"
+        
+        ax.errorbar(concentrations, values, yerr=errors, 
+                   color=color, marker='o', linestyle='', 
+                   capsize=3, alpha=0.7, markersize=6)
+        
+        if popt is not None:
+            if model == 'hill':
+                fit_vals = binding_curve_hill(conc_fit, *popt)
+            else:
+                fit_vals = binding_curve_two_site(conc_fit, *popt)
+            ax.plot(conc_fit, fit_vals, color=color, linestyle='-', 
+                   linewidth=2, alpha=0.8, label=label)
+        else:
+            ax.plot([], [], color=color, label=label)
+        
+        ax.set_xlabel('Concentration (µM)', fontsize=10)
+        ax.set_ylabel('% Folded', fontsize=10)
+        title_name = 'WT Tm' if kd_key == 'WT' else 'Override Temp'
+        ax.set_title(f'Mn²⁺ Titration at {title_name} ({temp_value:.1f}°C)', fontsize=11)
+        ax.set_xscale('log')
+        #ax.legend(fontsize=7, loc='best')
+        ax.grid(True, alpha=0.3)
+    
+    fig.suptitle(f"{protein_name} - Mn²⁺ Only", fontsize=10, y=0.995)
+    
+    plt.tight_layout()
+    protein_lower = protein_name.lower()
+    plt.savefig(f'{protein_lower}_mn_titration_only.png', dpi=300)
+    plt.show()
+# END TEMPORARY FUNCTION
+
 def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     """Plot bar graph of inverse Kds for each metal"""
     # Determine which temperature to use (Override if present, otherwise WT)
@@ -618,7 +727,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Mix']]
     all_metals = sorted(all_metals, key=get_atomic_number)
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(4, 3))
     
     x_positions = np.arange(len(all_metals))
     bar_width = 0.8
@@ -678,7 +787,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                        color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.1, 'N.B.', ha='center', va='bottom',
-                       fontsize=10, fontweight='bold', color='black')
+                       fontsize=8, fontweight='bold', color='black')
                 continue
             
             inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
@@ -723,10 +832,10 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             ax.errorbar(x_pos + offset, inverse_kd2, yerr=[[yerr_lower2], [yerr_upper2]],
                        fmt='none', ecolor='black', capsize=5, capthick=2)
     
-    ax.set_ylabel('Kd (M)', fontsize=12)
+    ax.set_ylabel('Kd (M)', fontsize=10)
     ax.set_yscale('log')
     ax.set_ylim(10e-5,1000)
-    ax.set_xlabel('Metal', fontsize=12)
+    ax.set_xlabel('Metal', fontsize=10)
     ax.set_title(f'DSF Binding Affinity for {protein_name} at {temp_value:.1f}°C', pad=20)
     ax.set_xticks(x_positions)
     ax.set_xticklabels(all_metals, rotation=0)
@@ -751,7 +860,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     ax.set_yticklabels(kd_labels)
     
     if model == 'two-site':
-        ax.legend(fontsize=9, loc='best')
+        ax.legend(fontsize=8, loc='best')
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
