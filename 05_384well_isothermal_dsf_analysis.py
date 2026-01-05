@@ -27,12 +27,14 @@ def main():
     if args.exclude:
         df = exclude_temps(df, args.exclude)
     raw_df = assign_conc(df)
+    if args.exclude_high > 0:
+        raw_df = exclude_high_conc(raw_df, args.exclude_high)
     norm_df = normalize(raw_df)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
-    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, exclude_high=args.exclude_high, model=args.model)
+    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model)
     plot_df(raw_df, 'Fluorescence', args.protein)
-    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error')
+    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error', override=args.override)
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
     plot_kds_mn_only(titration_df, kd_results, args.protein, model=args.model)  # TEMPORARY - remove later
@@ -56,6 +58,23 @@ def parse_csv_file(csv):
 
 def exclude_temps(df, exclude):
     return df[df['Temperature'] <= exclude]
+
+def exclude_high_conc(df, exclude_high):
+    """Remove the N highest concentrations from the dataframe (excluding 0 concentration)"""
+    # Get all unique concentrations (excluding 0)
+    unique_concs = sorted([c for c in df['Concentration'].unique() if c > 0], reverse=True)
+    
+    # Get the N highest concentrations to exclude
+    if exclude_high >= len(unique_concs):
+        # If trying to exclude all or more, exclude all except the lowest
+        concs_to_exclude = unique_concs[:-1]
+    else:
+        concs_to_exclude = unique_concs[:exclude_high]
+    
+    # Remove rows with those concentrations
+    df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
+    
+    return df_filtered
 
 def assign_conc(df):
     global metals_left, metals_right, rows, metal_colors, protein_conc
@@ -116,7 +135,7 @@ def get_atomic_number(metal_name):
     element = ''.join(c for c in metal_name if c.isalpha())
     return atomic_numbers.get(element, 999)
 
-def plot_df(df, y_column, protein_name, error_column=None):    
+def plot_df(df, y_column, protein_name, error_column=None, override=None):    
     # If error_column provided, use averaged data mode
     if error_column:
         unique_metals = sorted(df['Metal'].unique(), key=get_atomic_number)
@@ -144,7 +163,16 @@ def plot_df(df, y_column, protein_name, error_column=None):
                         color=color, alpha=0.3)
             
             wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
-            ax.axvline(x=wt_tm, color='black', linestyle='--', linewidth=1.5, alpha=0.8, label=f'WT Tm ({wt_tm:.1f}°C)')
+            
+            # Use override temperature if provided, otherwise use WT Tm
+            if override:
+                plot_temp = float(override)
+                temp_label = f'Override Tm ({plot_temp:.1f}°C)'
+            else:
+                plot_temp = wt_tm
+                temp_label = f'WT Tm ({wt_tm:.1f}°C)'
+            
+            ax.axvline(x=plot_temp, color='black', linestyle='--', linewidth=1.5, alpha=0.8, label=temp_label)
             
             ax.set_xlabel('Temperature (°C)', fontsize=10)
             ax.set_ylabel(y_column, fontsize=10)
@@ -176,6 +204,11 @@ def plot_df(df, y_column, protein_name, error_column=None):
                 for well in well_range:
                     well_pos = row + str(well)
                     well_data = df[df['Well Position'] == well_pos].sort_values('Temperature')
+                    
+                    # Skip wells with no data (e.g., excluded by exclude_high)
+                    if len(well_data) == 0:
+                        continue
+                    
                     conc = well_data['Concentration'].iloc[0]
                     conc_idx = concentrations.index(conc) if conc in concentrations else 0
                     
@@ -199,6 +232,7 @@ def plot_df(df, y_column, protein_name, error_column=None):
     plt.show()
 
 def normalize(df):
+    df = df.copy()
     scaler = MinMaxScaler()
     df['Normalized Fluorescence'] = df.groupby('Well')['Fluorescence'].transform(
         lambda x: scaler.fit_transform(x.values.reshape(-1, 1)).flatten())
@@ -383,7 +417,7 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan,
                     'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
 
-def find_kds(df, override=None, exclude_high=0, model='hill'):
+def find_kds(df, override=None, model='hill'):
     wt_tm = df[(df['Metal'] == 'EDTA') & (df['Concentration'] == 0)]['Tm'].iloc[0]
     kd_data = []
     
@@ -421,23 +455,10 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
     for metal in kd_df['Metal'].unique():
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
         concs = metal_data['Concentration'].values
+        wt_vals = 1 - metal_data['WT Tm'].values
+        wt_errs = metal_data['WT Tm Standard Error'].values
         
-        if exclude_high > 0:
-            non_zero_mask = concs > 0
-            sorted_indices = np.argsort(concs)
-            exclude_indices = sorted_indices[-(exclude_high):] if np.sum(non_zero_mask) > exclude_high else []
-            fit_mask = np.ones(len(concs), dtype=bool)
-            fit_mask[exclude_indices] = False
-            
-            concs_fit = concs[fit_mask]
-            wt_vals_fit = (1 - metal_data['WT Tm'].values)[fit_mask]
-            wt_errs_fit = metal_data['WT Tm Standard Error'].values[fit_mask]
-        else:
-            concs_fit = concs
-            wt_vals_fit = 1 - metal_data['WT Tm'].values
-            wt_errs_fit = metal_data['WT Tm Standard Error'].values
-        
-        fit_result = fit_binding_curve(concs_fit, wt_vals_fit, wt_errs_fit, model=model)
+        fit_result = fit_binding_curve(concs, wt_vals, wt_errs, model=model)
         
         # Quality control: reject fits with poor R² or low amplitude (non-binding)
         r2_threshold = 0.7
@@ -452,7 +473,8 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
             amplitude = abs(ymax - ymin)
             
             # Mark as N/A if R² is too low or amplitude is too small
-            if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
+            # or amplitude < amplitude_threshold:
+            if fit_result['R_squared'] < r2_threshold:
                 if model == 'hill':
                     fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
                                  'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
@@ -467,13 +489,9 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
         kd_list.append(fit_result)
         
         if override is not None:
-            if exclude_high > 0:
-                override_vals_fit = (1 - metal_data['Override Tm'].values)[fit_mask]
-                override_errs_fit = metal_data['Override Tm Standard Error'].values[fit_mask]
-            else:
-                override_vals_fit = 1 - metal_data['Override Tm'].values
-                override_errs_fit = metal_data['Override Tm Standard Error'].values
-            fit_result = fit_binding_curve(concs_fit, override_vals_fit, override_errs_fit, model=model)
+            override_vals = 1 - metal_data['Override Tm'].values
+            override_errs = metal_data['Override Tm Standard Error'].values
+            fit_result = fit_binding_curve(concs, override_vals, override_errs, model=model)
             
             # Quality control: reject fits with poor R² or low amplitude (non-binding)
             if not np.isnan(fit_result['R_squared']):
@@ -485,7 +503,8 @@ def find_kds(df, override=None, exclude_high=0, model='hill'):
                 amplitude = abs(ymax - ymin)
                 
                 # Mark as N/A if R² is too low or amplitude is too small
-                if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
+                # or amplitude < amplitude_threshold:
+                if fit_result['R_squared'] < r2_threshold:
                     if model == 'hill':
                         fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
                                      'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
