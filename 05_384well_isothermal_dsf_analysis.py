@@ -16,19 +16,26 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze 384 well DSF 8 metal, triplicate experiment.")
     parser.add_argument('-c', '--csv', type=str, required=True, help="Raw DSF values from DA2")
     parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
-    parser.add_argument('-e', '--exclude', type=float, required=False, help="Exclude temps over this value")
+    parser.add_argument('-ht', '--high_temp', type=float, required=False, help="Exclude temps over this value")
+    parser.add_argument('-lt', '--low_temp', type=float, required=False, help="Exclude temps under this value")
     parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
     parser.add_argument('-x', '--exclude_high', type=int, default=0, help="Number of highest concentrations to exclude from fitting")
+    parser.add_argument('-l', '--exclude_low', type=int, default=0, help="Number of lowest concentrations to exclude from fitting")
     parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site'], 
                         help="Binding model: 'hill' (Hill equation with n) or 'two-site' (two independent sites)")
     args = parser.parse_args()
     
     df = parse_csv_file(args.csv)
-    if args.exclude:
-        df = exclude_temps(df, args.exclude)
+    if args.high_temp:
+        df = exclude_high_temps(df, args.high_temp)
+    if args.low_temp:
+        df = exclude_low_temps(df, args.low_temp)
+    # df = exclude_gap_temps(df, x, y)
     raw_df = assign_conc(df)
     if args.exclude_high > 0:
         raw_df = exclude_high_conc(raw_df, args.exclude_high)
+    if args.exclude_low > 0:
+        raw_df = exclude_low_conc(raw_df, args.exclude_low)
     norm_df = normalize(raw_df)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
@@ -56,8 +63,15 @@ def parse_csv_file(csv):
     df = df.drop(columns=['Target'])
     return df
 
-def exclude_temps(df, exclude):
+def exclude_high_temps(df, exclude):
     return df[df['Temperature'] <= exclude]
+
+def exclude_low_temps(df, exclude):
+    return df[df['Temperature'] >= exclude]
+
+def exclude_gap_temps(df, gap_low, gap_high):
+    """Exclude temperatures within a gap range (keep temps outside the gap)"""
+    return df[(df['Temperature'] < gap_low) | (df['Temperature'] > gap_high)]
 
 def exclude_high_conc(df, exclude_high):
     """Remove the N highest concentrations from the dataframe (excluding 0 concentration)"""
@@ -71,6 +85,19 @@ def exclude_high_conc(df, exclude_high):
     else:
         concs_to_exclude = unique_concs[:exclude_high]
     
+    # Remove rows with those concentrations
+    df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
+    
+    return df_filtered
+
+def exclude_low_conc(df, exclude_low):
+    unique_concs = sorted([c for c in df['Concentration'].unique() if c > 0], reverse=True)
+    # Get the N highest concentrations to exclude
+    if exclude_low >= len(unique_concs):
+        # If trying to exclude all or more, exclude all except the lowest
+        concs_to_exclude = unique_concs[:-1]
+    else:
+        concs_to_exclude = unique_concs[-exclude_low:]
     # Remove rows with those concentrations
     df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
     
