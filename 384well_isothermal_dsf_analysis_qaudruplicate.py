@@ -483,7 +483,7 @@ def find_kds(df, override=None, model='hill'):
         fit_result = fit_binding_curve(concs, apo_vals, apo_errs, model=model)
         
         # Quality control: reject fits with poor R² or low amplitude (non-binding)
-        r2_threshold = 0.7
+        r2_threshold = 0.5
         amplitude_threshold = 0.1
         
         if not np.isnan(fit_result['R_squared']):
