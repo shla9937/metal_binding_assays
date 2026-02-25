@@ -486,17 +486,11 @@ def find_kds(df, override=None, model='hill'):
         r2_threshold = 0.5
         amplitude_threshold = 0.1
         
-        if not np.isnan(fit_result['R_squared']):
-            if model == 'hill':
-                ymin, ymax = fit_result['Fit_Params'][1], fit_result['Fit_Params'][2]
-            else:  # two-site
-                ymin, ymax = fit_result['Fit_Params'][2], fit_result['Fit_Params'][3]
-            
-            amplitude = abs(ymax - ymin)
+        if not np.isnan(fit_result['R_squared']) and fit_result['Fit_Params'] is not None:
+            amplitude = abs(np.max(apo_vals) - np.min(apo_vals))
             
             # Mark as N/A if R² is too low or amplitude is too small
-            # or amplitude < amplitude_threshold:
-            if fit_result['R_squared'] < r2_threshold:
+            if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
                 if model == 'hill':
                     fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
                                  'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
@@ -516,17 +510,11 @@ def find_kds(df, override=None, model='hill'):
             fit_result = fit_binding_curve(concs, override_vals, override_errs, model=model)
             
             # Quality control: reject fits with poor R² or low amplitude (non-binding)
-            if not np.isnan(fit_result['R_squared']):
-                if model == 'hill':
-                    ymin, ymax = fit_result['Fit_Params'][1], fit_result['Fit_Params'][2]
-                else:  # two-site
-                    ymin, ymax = fit_result['Fit_Params'][2], fit_result['Fit_Params'][3]
-                
-                amplitude = abs(ymax - ymin)
+            if not np.isnan(fit_result['R_squared']) and fit_result['Fit_Params'] is not None:
+                amplitude = abs(np.max(override_vals) - np.min(override_vals))
                 
                 # Mark as N/A if R² is too low or amplitude is too small
-                # or amplitude < amplitude_threshold:
-                if fit_result['R_squared'] < r2_threshold:
+                if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
                     if model == 'hill':
                         fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
                                      'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
