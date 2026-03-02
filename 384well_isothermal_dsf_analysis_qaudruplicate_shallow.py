@@ -113,7 +113,7 @@ def assign_conc(df):
     # which metal is being titrated in columns 13-24, A-P)
     metals_right = ["Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
                    "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
-    concentrations = [1000, 333, 111, 37, 12.3, 4.1, 1.37, 0.457, 0.152, 0.051, 0.017, 0.006]
+    concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
     metal_colors = {
         "Mn²⁺": "#FF1493",    # deep pink
