@@ -108,22 +108,52 @@ def assign_conc(df):
     df['Concentration'] = np.nan
     protein_conc = 5  # µM
     # which metal is being titrated in columns 1-12, A-P)
-    metals_left = ["Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
-                   "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
+    metals_left = ["Li⁺", "Cu²⁺", "Mg²⁺", "Zn²⁺", "K⁺", "Rb⁺", "Ca²⁺", "Sr²⁺",
+                   "Sc³⁺", "Y³⁺", "Mn²⁺", "Cs⁺", "Co²⁺", "Ba²⁺", "Ni²⁺", "La³⁺"]
     # which metal is being titrated in columns 13-24, A-P)
-    metals_right = ["Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
-                   "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
+    metals_right = ["Ce³⁺", "Ho³⁺", "Pr³⁺", "Er³⁺", "Nd³⁺", "Tm³⁺", "Sm³⁺", "Yb³⁺",
+                   "Eu³⁺", "Lu³⁺", "Gd³⁺", "EDTA", "Tb³⁺", "EDTA", "Dy³⁺", "Apo"]
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
     metal_colors = {
-        "Mn²⁺": "#FF1493",    # deep pink
-        "Co²⁺": "#8B008B",    # dark magenta
-        "Ni²⁺": "#00C853",    # bright green
-        "Cu²⁺": "#1E90FF",    # dodger blue
-        "Nd³⁺": "#8A2BE2",    # blue violet
-        "Dy³⁺": "#FFD700",    # gold
-        "EDTA": "#228B22",     # forest green
-        "Apo": "#808080"     # gray
+        # Colored aqueous chloride solutions
+        "Mn²⁺": "#FF1493",    # deep pink (MnCl2 aq is faint pink)
+        "Co²⁺": "#8B008B",    # dark magenta (CoCl2 aq is deep pink/magenta)
+        "Ni²⁺": "#00C853",    # bright green (NiCl2 aq is green)
+        "Cu²⁺": "#1E90FF",    # dodger blue (CuCl2 aq is blue)
+        "Nd³⁺": "#8A2BE2",    # blue violet (NdCl3 aq is lilac/purple)
+        "Dy³⁺": "#FFD700",    # gold (DyCl3 aq is pale yellow)
+        "Pr³⁺": "#80FF20",    # vibrant lime green (PrCl3 aq is yellow-green)
+        "Er³⁺": "#FF4D80",    # vibrant pink (ErCl3 aq is distinctly pink)
+        "Ho³⁺": "#FF9D00",    # vibrant amber (HoCl3 aq is distinctly yellow)
+        # Non-metal controls
+        "EDTA": "#FF6600",    # bright orange
+        "Apo":  "#808080",    # medium gray
+        # Colorless aqueous solutions — unique gray shades
+        # Alkali metals
+        "Li⁺":  "#DCE8F0",    # very light blue-gray
+        "K⁺":   "#E8E8D8",    # very light warm gray
+        "Rb⁺":  "#9090A8",    # medium blue-gray
+        "Cs⁺":  "#707060",    # medium olive-gray
+        # Alkaline earth metals
+        "Mg²⁺": "#D8D8D0",    # very light warm gray
+        "Ca²⁺": "#C8D0D8",    # light cool gray
+        "Sr²⁺": "#A8B0A8",    # medium green-gray
+        "Ba²⁺": "#585858",    # dark gray
+        # Group 3 / early transition
+        "Sc³⁺": "#989898",    # medium gray
+        "Y³⁺":  "#686868",    # medium-dark gray
+        "Zn²⁺": "#C0C0C0",    # silver
+        "La³⁺": "#484858",    # dark blue-gray
+        # Colorless lanthanides
+        "Ce³⁺": "#A8C0B0",    # light teal-gray
+        "Sm³⁺": "#C8C0B0",    # light warm tan-gray
+        "Eu³⁺": "#C0B0C0",    # light mauve-gray
+        "Gd³⁺": "#686060",    # dark warm gray
+        "Tb³⁺": "#606868",    # dark teal-gray
+        "Tm³⁺": "#A0A898",    # medium warm olive-gray
+        "Yb³⁺": "#787070",    # medium dark warm gray
+        "Lu³⁺": "#404040",    # very dark gray
     }
 
     for row in rows:
