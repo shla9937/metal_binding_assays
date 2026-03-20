@@ -23,6 +23,8 @@ def main():
     parser.add_argument('-l', '--exclude_low', type=int, default=0, help="Number of lowest concentrations to exclude from fitting")
     parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site'], 
                         help="Binding model: 'hill' (Hill equation with n) or 'two-site' (two independent sites)")
+    parser.add_argument('-w', '--exclude_wells', type=str, nargs='+', default=[],
+                        help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
     args = parser.parse_args()
     
     df = parse_csv_file(args.csv)
@@ -32,11 +34,14 @@ def main():
         df = exclude_low_temps(df, args.low_temp)
     # df = exclude_gap_temps(df, x, y)
     raw_df = assign_conc(df)
+    if args.exclude_wells:
+        raw_df = exclude_wells(raw_df, args.exclude_wells)
     if args.exclude_high > 0:
         raw_df = exclude_high_conc(raw_df, args.exclude_high)
     if args.exclude_low > 0:
         raw_df = exclude_low_conc(raw_df, args.exclude_low)
-    norm_df = normalize(raw_df)
+    smoothed_df = smooth_wells(raw_df)
+    norm_df = normalize(smoothed_df)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
     titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model)
@@ -88,6 +93,12 @@ def exclude_high_conc(df, exclude_high):
     df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
     
     return df_filtered
+
+def exclude_wells(df, wells):
+    """Remove specific well positions from the dataframe"""
+    # Normalise input to uppercase and strip whitespace
+    wells_normalised = [w.strip().upper() for w in wells]
+    return df[~df['Well Position'].str.upper().isin(wells_normalised)]
 
 def exclude_low_conc(df, exclude_low):
     unique_concs = sorted([c for c in df['Concentration'].unique() if c > 0], reverse=True)
@@ -283,10 +294,23 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
     plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.png", dpi=150)
     plt.show()
 
+def smooth_wells(df):
+    """Apply Savitzky-Golay smoothing per well to raw fluorescence."""
+    df = df.copy()
+    def _smooth(x):
+        wl = min(len(x), 51)
+        if wl % 2 == 0:
+            wl -= 1
+        if wl >= 5:
+            return savgol_filter(x.values, wl, 3)
+        return x.values
+    df['Smoothed Fluorescence'] = df.groupby('Well')['Fluorescence'].transform(_smooth)
+    return df
+
 def normalize(df):
     df = df.copy()
     scaler = MinMaxScaler()
-    df['Normalized Fluorescence'] = df.groupby('Well')['Fluorescence'].transform(
+    df['Normalized Fluorescence'] = df.groupby('Well')['Smoothed Fluorescence'].transform(
         lambda x: scaler.fit_transform(x.values.reshape(-1, 1)).flatten())
     return df
 
@@ -309,24 +333,15 @@ def find_tms(df):
         temps = group['Temperature'].values
         fluor = group['Average Normalized Fluorescence'].values
         
-        # Smooth the fluorescence data using Savitzky-Golay filter
-        window_length = min(len(fluor), 51)
-        if window_length % 2 == 0:
-            window_length -= 1
-        if window_length >= 5:
-            fluor_smooth = savgol_filter(fluor, window_length, 3)
-        else:
-            fluor_smooth = fluor
-        
-        # Calculate first derivative on smoothed data
-        derivative = np.gradient(fluor_smooth, temps)
+        # Data is already smoothed per well before normalization; compute derivative directly
+        derivative = np.gradient(fluor, temps)
         
         # Find peak of derivative (steepest slope = Tm)
         peak_idx = np.argmax(derivative)
         tm = temps[peak_idx]
         
         tm_values.append(tm)
-        smoothed_values.append(fluor_smooth)
+        smoothed_values.append(fluor)
         group_indices.append(group.index)
     
     # Add Tm and smoothed fluorescence columns to dataframe
@@ -513,7 +528,7 @@ def find_kds(df, override=None, model='hill'):
         fit_result = fit_binding_curve(concs, apo_vals, apo_errs, model=model)
         
         # Quality control: reject fits with poor R² or low amplitude (non-binding)
-        r2_threshold = 0.7
+        r2_threshold = 0.8
         amplitude_threshold = 0.1
         
         if not np.isnan(fit_result['R_squared']):
@@ -525,10 +540,9 @@ def find_kds(df, override=None, model='hill'):
             amplitude = abs(ymax - ymin)
             
             # Mark as N/A if R² is too low or amplitude is too small
-            # or amplitude < amplitude_threshold:
-            if fit_result['R_squared'] < r2_threshold:
+            if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
                 if model == 'hill':
-                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
+                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan,
                                  'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
                                  'Fit_Params': None, 'Model': 'hill'}
                 else:
@@ -555,8 +569,7 @@ def find_kds(df, override=None, model='hill'):
                 amplitude = abs(ymax - ymin)
                 
                 # Mark as N/A if R² is too low or amplitude is too small
-                # or amplitude < amplitude_threshold:
-                if fit_result['R_squared'] < r2_threshold:
+                if fit_result['R_squared'] < r2_threshold or amplitude < amplitude_threshold:
                     if model == 'hill':
                         fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
                                      'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
