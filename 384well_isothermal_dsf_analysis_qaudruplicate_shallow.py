@@ -39,7 +39,6 @@ def main():
         df = exclude_high_temps(df, args.high_temp)
     if args.low_temp:
         df = exclude_low_temps(df, args.low_temp)
-    # df = exclude_gap_temps(df, x, y)
     raw_df = assign_conc(df)
     if args.exclude_wells:
         raw_df = exclude_wells(raw_df, args.exclude_wells)
@@ -81,10 +80,6 @@ def exclude_high_temps(df, exclude):
 def exclude_low_temps(df, exclude):
     return df[df['Temperature'] >= exclude]
 
-def exclude_gap_temps(df, gap_low, gap_high):
-    """Exclude temperatures within a gap range (keep temps outside the gap)"""
-    return df[(df['Temperature'] < gap_low) | (df['Temperature'] > gap_high)]
-
 def exclude_high_conc(df, exclude_high):
     """Remove the N highest concentrations from the dataframe (excluding 0 concentration)"""
     # Get all unique concentrations (excluding 0)
@@ -104,6 +99,7 @@ def exclude_high_conc(df, exclude_high):
 
 def exclude_wells(df, wells):
     """Remove specific well positions from the dataframe"""
+    # Normalise input to uppercase and strip whitespace
     wells_normalised = [w.strip().upper() for w in wells]
     return df[~df['Well Position'].str.upper().isin(wells_normalised)]
 
@@ -288,8 +284,8 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
                     ax.plot(well_data['Temperature'], well_data[y_column], 
                            label=f"{well_pos} ({conc:.3g} µM)", alpha=0.8, color=color)
                 
-                ax.set_xlabel('Temperature (°C)')
-                ax.set_ylabel(y_column)
+                ax.set_xlabel('Temperature (°C)', fontsize=10)
+                ax.set_ylabel(y_column, fontsize=10)
                 ax.set_title(f"Row {row} - {metal} ({label_suffix})")
                 ax.grid(True, alpha=0.3)
                 plot_idx += 1
@@ -298,7 +294,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    save_vector_pdf(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf")
+    plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf", bbox_inches='tight', backend='pdf')
     plt.show()
 
 def smooth_wells(df):
@@ -378,19 +374,17 @@ def plot_tms(df, protein_name):
         conc_range = np.linspace(concentrations.min(), concentrations.max(), 100)
         ax.plot(conc_range, fit_line(conc_range), color=color, linestyle='-', linewidth=2, alpha=0.8)
     
-    ax.set_xlabel('Concentration (µM)', fontsize=8)
-    ax.set_ylabel('Tm (°C)', fontsize=8)
-    ax.set_title('Tm vs Concentration', fontsize=8)
+    ax.set_xlabel('Concentration (µM)', fontsize=10)
+    ax.set_ylabel('Tm (°C)', fontsize=10)
+    ax.set_title(f'{protein_name} - Tm vs Concentration', fontsize=10)
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=6, ncol=6,
               frameon=True, borderaxespad=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
-    fig.suptitle(protein_name, fontsize=10, y=0.98)
-    
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    save_vector_pdf(f'{protein_lower}_tm_vs_concentration.pdf')
+    plt.savefig(f'{protein_lower}_tm_vs_concentration.pdf', bbox_inches='tight', backend='pdf')
     plt.show()
 
 def binding_curve_hill(conc, kd, ymin, ymax, n):
@@ -551,12 +545,10 @@ def find_kds(df, override=None, model='hill', tm_threshold=3.0, r2_threshold=0.7
     for metal in kd_df['Metal'].unique():
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
 
-        # Compute Tm change as |Tm at highest included concentration - Apo Tm|
+        # Compute max Tm change only over the included concentrations
         included_concs = metal_data['Concentration'].values
         metal_tms = df[(df['Metal'] == metal) & (df['Concentration'].isin(included_concs))].groupby('Concentration')['Tm'].first()
-        highest_conc = metal_tms.idxmax()
-        tm_change = abs(metal_tms[highest_conc] - apo_tm)
-
+        tm_change = metal_tms.max() - metal_tms.min()
         concs = metal_data['Concentration'].values
         apo_vals = 1 - metal_data['Apo Tm'].values
         apo_errs = metal_data['Apo Tm Standard Error'].values
@@ -565,7 +557,7 @@ def find_kds(df, override=None, model='hill', tm_threshold=3.0, r2_threshold=0.7
         
         # Quality control: reject fits with poor R² or insufficient Tm change
         if not np.isnan(fit_result['R_squared']):
-            if fit_result['R_squared'] < r2_threshold or tm_change < tm_threshold:
+            if fit_result['R_squared'] < r2_threshold or tm_change <= tm_threshold:
                 if model == 'hill':
                     fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan,
                                  'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
@@ -651,7 +643,9 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                     
                     if not np.isnan(kd):
                         if kd < 1.0:
-                            label = f"{metal}: Kd={kd*1000:.0f}nM, n={n:.2f}, R²={r2:.3f}"
+                            kd_nm = kd * 1000
+                            kd_err_nm = kd_err * 1000
+                            label = f"{metal}: Kd={kd_nm:.0f}nM, n={n:.2f}, R²={r2:.3f}"
                         else:
                             label = f"{metal}: Kd={kd:.1f}µM, n={n:.2f}, R²={r2:.3f}"
                     else:
@@ -721,7 +715,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    save_vector_pdf(f'{protein_lower}_metal_titrations.pdf')
+    plt.savefig(f'{protein_lower}_metal_titrations.pdf', bbox_inches='tight', backend='pdf')
     plt.show()
 
 def plot_kd_bars(df, kd_results, protein_name, model='hill'):
@@ -768,7 +762,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             kd = metal_data['Kd'].values[0]
             kd_err = metal_data['Kd_Error'].values[0]
             
-            # Set NB (no binding) to 10^-4 if Kd is NA
+            # Set N.B. (no binding) to 10^-4 if Kd is NA
             if np.isnan(kd):
                 ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
                        bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
@@ -877,17 +871,8 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    save_vector_pdf(f'{protein_lower}_kd_bar_chart.pdf')
+    plt.savefig(f'{protein_lower}_kd_bar_chart.pdf', bbox_inches='tight', backend='pdf')
     plt.show()
-
-def save_vector_pdf(filename):
-    """Save current figure as a fully vector PDF by disabling per-artist rasterization."""
-    fig = plt.gcf()
-    for ax in fig.get_axes():
-        for artist in ax.get_children():
-            if hasattr(artist, 'set_rasterized'):
-                artist.set_rasterized(False)
-    fig.savefig(filename, bbox_inches='tight', backend='pdf')
 
 def save_command_txt(protein_name):
     """Save the command used to run this analysis"""
