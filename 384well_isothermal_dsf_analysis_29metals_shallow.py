@@ -744,6 +744,11 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     if model == 'two-site':
         bar_width = 0.4
     
+    # On a log y-axis, bars default to bottom=0 which maps to -infinity in the PDF
+    # geometry, making objects huge when opened in Illustrator. Using a finite bottom
+    # value just below the visible axis floor prevents this.
+    bar_bottom = 5e-5  # half-decade below the ylim floor of 1e-4
+    
     for metal_idx, metal in enumerate(all_metals):
         metal_data = kd_results_filtered[kd_results_filtered['Metal'] == metal]
         
@@ -759,8 +764,8 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             
             # Set N.B. (no binding) to 10^-4 if Kd is NA
             if np.isnan(kd):
-                ax.bar(x_pos, 1e-4, bar_width,
-                       color=base_color, edgecolor='black', linewidth=1,
+                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
+                       bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',
                        fontsize=6, fontweight='bold', color='black')
@@ -780,8 +785,8 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                 yerr_lower = 0
                 yerr_upper = 0
             
-            ax.bar(x_pos, inverse_kd, bar_width,
-                   color=base_color, edgecolor='black', linewidth=1)
+            ax.bar(x_pos, inverse_kd - bar_bottom, bar_width,
+                   bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1)
             ax.errorbar(x_pos, inverse_kd, yerr=[[yerr_lower], [yerr_upper]],
                        fmt='none', ecolor='black', capsize=4, capthick=1)
         
@@ -792,8 +797,8 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             kd2_err = metal_data['Kd2_Error'].values[0]
             
             if np.isnan(kd1):
-                ax.bar(x_pos, 1e-4, bar_width,
-                       color=base_color, edgecolor='black', linewidth=1,
+                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
+                       bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.1, 'NB', ha='center', va='bottom',
                        fontsize=6, fontweight='bold', color='black')
@@ -830,13 +835,13 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             lighter_color = tuple(c * 0.5 + 0.5 for c in base_rgb[:3]) + (base_rgb[3],)
             
             offset = bar_width * 0.55
-            ax.bar(x_pos - offset, inverse_kd1, bar_width,
-                   color=base_color, edgecolor='black', linewidth=1,
+            ax.bar(x_pos - offset, inverse_kd1 - bar_bottom, bar_width,
+                   bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                    label='Site 1' if metal_idx == 0 else '')
             ax.errorbar(x_pos - offset, inverse_kd1, yerr=[[yerr_lower1], [yerr_upper1]],
                        fmt='none', ecolor='black', capsize=4, capthick=1)
-            ax.bar(x_pos + offset, inverse_kd2, bar_width,
-                   color=lighter_color, edgecolor='black', linewidth=1,
+            ax.bar(x_pos + offset, inverse_kd2 - bar_bottom, bar_width,
+                   bottom=bar_bottom, color=lighter_color, edgecolor='black', linewidth=1,
                    label='Site 2' if metal_idx == 0 else '')
             ax.errorbar(x_pos + offset, inverse_kd2, yerr=[[yerr_lower2], [yerr_upper2]],
                        fmt='none', ecolor='black', capsize=4, capthick=1)

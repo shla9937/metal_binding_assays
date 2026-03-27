@@ -3,6 +3,9 @@
 import os
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.rcParams['pdf.fonttype'] = 42  # Embed fonts as vectors
+matplotlib.rcParams['pdf.use14corefonts'] = False
 import matplotlib.pyplot as plt
 import argparse
 from scipy.signal import find_peaks, savgol_filter
@@ -21,10 +24,14 @@ def main():
     parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
     parser.add_argument('-x', '--exclude_high', type=int, default=0, help="Number of highest concentrations to exclude from fitting")
     parser.add_argument('-l', '--exclude_low', type=int, default=0, help="Number of lowest concentrations to exclude from fitting")
-    parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site'], 
-                        help="Binding model: 'hill' (Hill equation with n) or 'two-site' (two independent sites)")
+    parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site', 'quadratic'], 
+                        help="Binding model: 'hill' (Hill equation with n), 'two-site' (two independent sites), or 'quadratic' (quadratic binding, accounts for ligand depletion)")
     parser.add_argument('-w', '--exclude_wells', type=str, nargs='+', default=[],
                         help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
+    parser.add_argument('-T', '--tm_threshold', type=float, default=1.0,
+                        help="Minimum Tm change (°C) required to consider binding (default: 3.0)")
+    parser.add_argument('-r', '--r2_threshold', type=float, default=0.7,
+                        help="Minimum R² required to accept a fit (default: 0.7)")
     args = parser.parse_args()
     
     df = parse_csv_file(args.csv)
@@ -44,13 +51,14 @@ def main():
     norm_df = normalize(smoothed_df)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
-    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model)
+    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model, tm_threshold=args.tm_threshold, r2_threshold=args.r2_threshold)
     plot_df(raw_df, 'Fluorescence', args.protein)
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error', override=args.override)
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
     plot_kd_bars(titration_df, kd_results, args.protein, model=args.model)
     save_results_csv(titration_df, kd_results, args.protein)
+    save_command_txt(args.protein)
 
 def parse_csv_file(csv):
     with open(csv, 'r') as f:
@@ -126,14 +134,44 @@ def assign_conc(df):
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
     metal_colors = {
-        "Mn²⁺": "#FF1493",    # deep pink
-        "Co²⁺": "#8B008B",    # dark magenta
-        "Ni²⁺": "#00C853",    # bright green
-        "Cu²⁺": "#1E90FF",    # dodger blue
-        "Nd³⁺": "#8A2BE2",    # blue violet
-        "Dy³⁺": "#FFD700",    # gold
-        "EDTA": "#228B22",     # forest green
-        "Apo": "#808080"     # gray
+        # Colored aqueous chloride solutions
+        "Mn²⁺": "#FF1493",    # deep pink (MnCl2 aq is faint pink)
+        "Co²⁺": "#8B008B",    # dark magenta (CoCl2 aq is deep pink/magenta)
+        "Ni²⁺": "#00C853",    # bright green (NiCl2 aq is green)
+        "Cu²⁺": "#1E90FF",    # dodger blue (CuCl2 aq is blue)
+        "Nd³⁺": "#8A2BE2",    # blue violet (NdCl3 aq is lilac/purple)
+        "Dy³⁺": "#FFD700",    # gold (DyCl3 aq is pale yellow)
+        "Pr³⁺": "#80FF20",    # vibrant lime green (PrCl3 aq is yellow-green)
+        "Er³⁺": "#FF4D80",    # vibrant pink (ErCl3 aq is distinctly pink)
+        "Ho³⁺": "#FF9D00",    # vibrant amber (HoCl3 aq is distinctly yellow)
+        # Non-metal controls
+        "EDTA": "#FF6600",    # bright orange
+        "Apo":  "#808080",    # medium gray
+        # Colorless aqueous solutions — unique gray shades
+        # Alkali metals
+        "Li⁺":  "#DCE8F0",    # very light blue-gray
+        "K⁺":   "#E8E8D8",    # very light warm gray
+        "Rb⁺":  "#9090A8",    # medium blue-gray
+        "Cs⁺":  "#707060",    # medium olive-gray
+        # Alkaline earth metals
+        "Mg²⁺": "#D8D8D0",    # very light warm gray
+        "Ca²⁺": "#C8D0D8",    # light cool gray
+        "Sr²⁺": "#A8B0A8",    # medium green-gray
+        "Ba²⁺": "#585858",    # dark gray
+        # Group 3 / early transition
+        "Sc³⁺": "#989898",    # medium gray
+        "Y³⁺":  "#686868",    # medium-dark gray
+        "Zn²⁺": "#C0C0C0",    # silver
+        "La³⁺": "#484858",    # dark blue-gray
+        # Colorless lanthanides
+        "Ce³⁺": "#A8C0B0",    # light teal-gray
+        "Sm³⁺": "#C8C0B0",    # light warm tan-gray
+        "Eu³⁺": "#C0B0C0",    # light mauve-gray
+        "Gd³⁺": "#686060",    # dark warm gray
+        "Tb³⁺": "#606868",    # dark teal-gray
+        "Tm³⁺": "#A0A898",    # medium warm olive-gray
+        "Yb³⁺": "#787070",    # medium dark warm gray
+        "Lu³⁺": "#404040",    # very dark gray
     }
 
     for row in rows:
@@ -260,7 +298,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.png", dpi=150)
+    save_vector_pdf(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf")
     plt.show()
 
 def smooth_wells(df):
@@ -323,7 +361,7 @@ def find_tms(df):
     return df
 
 def plot_tms(df, protein_name):
-    fig, ax = plt.subplots(figsize=(4, 3))
+    fig, ax = plt.subplots(figsize=(4, 5))
     tm_data = df.groupby(['Metal', 'Concentration'])['Tm'].first().reset_index()
     
     for metal in sorted(tm_data['Metal'].unique(), key=get_atomic_number):
@@ -343,15 +381,16 @@ def plot_tms(df, protein_name):
     ax.set_xlabel('Concentration (µM)', fontsize=8)
     ax.set_ylabel('Tm (°C)', fontsize=8)
     ax.set_title('Tm vs Concentration', fontsize=8)
-    # ax.set_xscale('log')
-    ax.legend(fontsize=6)
-    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=6, ncol=6,
+              frameon=True, borderaxespad=0)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
     
     fig.suptitle(protein_name, fontsize=10, y=0.98)
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    plt.savefig(f'{protein_lower}_tm_vs_concentration.png', dpi=300)
+    save_vector_pdf(f'{protein_lower}_tm_vs_concentration.pdf')
     plt.show()
 
 def binding_curve_hill(conc, kd, ymin, ymax, n):
@@ -364,17 +403,13 @@ def binding_curve_two_site(conc, kd1, kd2, ymin, ymax):
     site2 = conc / (kd2 + conc)
     return ymin + (ymax - ymin) * 0.5 * (site1 + site2)
 
-# Quadratic binding equation (Bai et al. 2018) - accounts for ligand depletion
-# def binding_curve(conc, kd, ymin, ymax):
-#     """Quadratic binding equation accounting for ligand depletion"""
-#     global protein_conc
-#     Pt = protein_conc  # Total protein concentration in µM
-#     Lt = conc  # Total ligand (metal) concentration in µM
-#     
-#     # Fraction bound = (([P]t + [L]t + Kd) - sqrt((([P]t + [L]t + Kd)^2 - 4[P]t[L]t))) / (2[P]t)
-#     fraction_bound = ((Pt + Lt + kd) - np.sqrt((Pt + Lt + kd)**2 - 4*Pt*Lt)) / (2*Pt)
-#     
-#     return ymin + (ymax - ymin) * fraction_bound
+def binding_curve_quadratic(conc, kd, ymin, ymax):
+    """Quadratic binding equation (Bai et al. 2018) accounting for ligand depletion"""
+    global protein_conc
+    Pt = protein_conc  # Total protein concentration in µM
+    Lt = conc  # Total ligand (metal) concentration in µM
+    fraction_bound = ((Pt + Lt + kd) - np.sqrt((Pt + Lt + kd)**2 - 4*Pt*Lt)) / (2*Pt)
+    return ymin + (ymax - ymin) * fraction_bound
 
 def fit_binding_curve(concentrations, values, errors, model='hill'):
     """Fit binding curve and return parameters with confidence intervals"""
@@ -445,15 +480,40 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             
             return {'Kd1': kd1, 'Kd1_Error': kd1_err, 'Kd2': kd2, 'Kd2_Error': kd2_err,
                     'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'two-site'}
+        
+        elif model == 'quadratic':
+            popt, pcov = curve_fit(
+                binding_curve_quadratic,
+                concentrations,
+                values,
+                p0=[kd_guess, ymin_guess, ymax_guess],
+                sigma=errors,
+                absolute_sigma=True,
+                maxfev=10000,
+                bounds=([0, 0, 0], [np.inf, 1, 1])
+            )
+            kd, ymin, ymax = popt
+            perr = np.sqrt(np.diag(pcov))
+            kd_err = perr[0] * 1.96
+            
+            y_pred = binding_curve_quadratic(concentrations, *popt)
+            ss_res = np.sum((values - y_pred)**2)
+            ss_tot = np.sum((values - np.mean(values))**2)
+            r_squared = 1 - (ss_res / ss_tot)
+            
+            return {'Kd': kd, 'Kd_Error': kd_err, 'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'quadratic'}
     except:
         if model == 'hill':
             return {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan, 
                     'R_squared': np.nan, 'Fit_Params': None, 'Model': 'hill'}
+        elif model == 'quadratic':
+            return {'Kd': np.nan, 'Kd_Error': np.nan,
+                    'R_squared': np.nan, 'Fit_Params': None, 'Model': 'quadratic'}
         else:
             return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan,
                     'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
 
-def find_kds(df, override=None, model='hill'):
+def find_kds(df, override=None, model='hill', tm_threshold=3.0, r2_threshold=0.7):
     apo_tm = df[df['Metal'] == 'Apo'].groupby('Concentration')['Tm'].first().mean()
     kd_data = []
     
@@ -487,34 +547,33 @@ def find_kds(df, override=None, model='hill'):
     
     kd_df = pd.DataFrame(kd_data)
     kd_list = []
-    
+
     for metal in kd_df['Metal'].unique():
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
+
+        # Compute Tm change as |Tm at highest included concentration - Apo Tm|
+        included_concs = metal_data['Concentration'].values
+        metal_tms = df[(df['Metal'] == metal) & (df['Concentration'].isin(included_concs))].groupby('Concentration')['Tm'].first()
+        highest_conc = metal_tms.idxmax()
+        tm_change = abs(metal_tms[highest_conc] - apo_tm)
+
         concs = metal_data['Concentration'].values
         apo_vals = 1 - metal_data['Apo Tm'].values
         apo_errs = metal_data['Apo Tm Standard Error'].values
         
         fit_result = fit_binding_curve(concs, apo_vals, apo_errs, model=model)
         
-        # Quality control: reject fits with poor R² or low amplitude (non-binding)
-        r2_threshold = 0.7
-        amplitude_threshold = 0.1
-        
+        # Quality control: reject fits with poor R² or insufficient Tm change
         if not np.isnan(fit_result['R_squared']):
-            if model == 'hill':
-                ymin, ymax = fit_result['Fit_Params'][1], fit_result['Fit_Params'][2]
-            else:  # two-site
-                ymin, ymax = fit_result['Fit_Params'][2], fit_result['Fit_Params'][3]
-            
-            amplitude = abs(ymax - ymin)
-            
-            # Mark as N/A if R² is too low or amplitude is too small
-            # or amplitude < amplitude_threshold:
-            if fit_result['R_squared'] < r2_threshold:
+            if fit_result['R_squared'] < r2_threshold or tm_change < tm_threshold:
                 if model == 'hill':
-                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
+                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan,
                                  'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
                                  'Fit_Params': None, 'Model': 'hill'}
+                elif model == 'quadratic':
+                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan,
+                                 'R_squared': fit_result['R_squared'],
+                                 'Fit_Params': None, 'Model': 'quadratic'}
                 else:
                     fit_result = {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan,
                                  'Kd2_Error': np.nan, 'R_squared': fit_result['R_squared'],
@@ -529,22 +588,17 @@ def find_kds(df, override=None, model='hill'):
             override_errs = metal_data['Override Tm Standard Error'].values
             fit_result = fit_binding_curve(concs, override_vals, override_errs, model=model)
             
-            # Quality control: reject fits with poor R² or low amplitude (non-binding)
+            # Quality control: reject fits with poor R² or insufficient Tm change
             if not np.isnan(fit_result['R_squared']):
-                if model == 'hill':
-                    ymin, ymax = fit_result['Fit_Params'][1], fit_result['Fit_Params'][2]
-                else:  # two-site
-                    ymin, ymax = fit_result['Fit_Params'][2], fit_result['Fit_Params'][3]
-                
-                amplitude = abs(ymax - ymin)
-                
-                # Mark as N/A if R² is too low or amplitude is too small
-                # or amplitude < amplitude_threshold:
-                if fit_result['R_squared'] < r2_threshold:
+                if fit_result['R_squared'] < r2_threshold or tm_change < tm_threshold:
                     if model == 'hill':
                         fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
                                      'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
                                      'Fit_Params': None, 'Model': 'hill'}
+                    elif model == 'quadratic':
+                        fit_result = {'Kd': np.nan, 'Kd_Error': np.nan,
+                                     'R_squared': fit_result['R_squared'],
+                                     'Fit_Params': None, 'Model': 'quadratic'}
                     else:
                         fit_result = {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan,
                                      'Kd2_Error': np.nan, 'R_squared': fit_result['R_squared'],
@@ -597,11 +651,22 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                     
                     if not np.isnan(kd):
                         if kd < 1.0:
-                            kd_nm = kd * 1000
-                            kd_err_nm = kd_err * 1000
-                            label = f"{metal}: Kd={kd_nm:.0f}±{kd_err_nm:.0f} nM, n={n:.2f}±{n_err:.2f}, R²={r2:.3f}"
+                            label = f"{metal}: Kd={kd*1000:.0f}nM, n={n:.2f}, R²={r2:.3f}"
                         else:
-                            label = f"{metal}: Kd={kd:.1f}±{kd_err:.1f} µM, n={n:.2f}±{n_err:.2f}, R²={r2:.3f}"
+                            label = f"{metal}: Kd={kd:.1f}µM, n={n:.2f}, R²={r2:.3f}"
+                    else:
+                        label = f"{metal}: Kd=N/A"
+                
+                elif model == 'quadratic':
+                    kd = kd_row['Kd'].values[0]
+                    kd_err = kd_row['Kd_Error'].values[0]
+                    r2 = kd_row['R_squared'].values[0]
+                    
+                    if not np.isnan(kd):
+                        if kd < 1.0:
+                            label = f"{metal}: Kd={kd*1000:.0f}nM (quad), R²={r2:.3f}"
+                        else:
+                            label = f"{metal}: Kd={kd:.1f}µM (quad), R²={r2:.3f}"
                     else:
                         label = f"{metal}: Kd=N/A"
                         
@@ -614,13 +679,13 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                     
                     if not np.isnan(kd1):
                         if kd1 < 1.0:
-                            kd1_str = f"{kd1*1000:.0f}±{kd1_err*1000:.1f} nM"
+                            kd1_str = f"{kd1*1000:.0f}nM"
                         else:
-                            kd1_str = f"{kd1:.1f}±{kd1_err:.1f} µM"
+                            kd1_str = f"{kd1:.1f}µM"
                         if kd2 < 1.0:
-                            kd2_str = f"{kd2*1000:.0f}±{kd2_err*1000:.1f} nM"
+                            kd2_str = f"{kd2*1000:.0f}nM"
                         else:
-                            kd2_str = f"{kd2:.1f}±{kd2_err:.1f} µM"
+                            kd2_str = f"{kd2:.1f}µM"
                         label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}, R²={r2:.3f}"
                     else:
                         label = f"{metal}: Kd=N/A"
@@ -635,6 +700,8 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
             if popt is not None:
                 if model == 'hill':
                     fit_vals = binding_curve_hill(conc_fit, *popt)
+                elif model == 'quadratic':
+                    fit_vals = binding_curve_quadratic(conc_fit, *popt)
                 else:
                     fit_vals = binding_curve_two_site(conc_fit, *popt)
                 ax.plot(conc_fit, fit_vals, color=color, linestyle='-', 
@@ -645,16 +712,16 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
         ax.set_xlabel('Concentration (µM)', fontsize=10)
         ax.set_ylabel('% Folded', fontsize=10)
         title_name = 'Apo Tm' if kd_key == 'Apo' else 'Override Temp'
-        ax.set_title(f'Titration at {title_name} ({temp_value:.1f}°C)', fontsize=11)
+        ax.set_title(f'{protein_name} - Titration at {title_name} ({temp_value:.1f}°C)', fontsize=10)
         ax.set_xscale('log')
-        ax.legend(fontsize=7, loc='best')
-        ax.grid(True, alpha=0.3)
-    
-    fig.suptitle(protein_name, fontsize=12, y=0.995)
+        ax.legend(fontsize=6, loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                  ncol=3, frameon=True, borderaxespad=0)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    plt.savefig(f'{protein_lower}_metal_titrations.png', dpi=300)
+    save_vector_pdf(f'{protein_lower}_metal_titrations.pdf')
     plt.show()
 
 def plot_kd_bars(df, kd_results, protein_name, model='hill'):
@@ -678,10 +745,15 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     fig, ax = plt.subplots(figsize=(4, 3))
     
     x_positions = np.arange(len(all_metals))
-    bar_width = 0.8
+    bar_width = 0.6
     
     if model == 'two-site':
         bar_width = 0.4
+    
+    # On a log y-axis, bars default to bottom=0 which maps to -infinity in the PDF
+    # geometry, making objects huge when opened in Illustrator. Using a finite bottom
+    # value just below the visible axis floor prevents this.
+    bar_bottom = 5e-5  # half-decade below the ylim floor of 1e-4
     
     for metal_idx, metal in enumerate(all_metals):
         metal_data = kd_results_filtered[kd_results_filtered['Metal'] == metal]
@@ -692,17 +764,17 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
         base_color = metal_colors[metal]
         x_pos = x_positions[metal_idx]
         
-        if model == 'hill':
+        if model in ('hill', 'quadratic'):
             kd = metal_data['Kd'].values[0]
             kd_err = metal_data['Kd_Error'].values[0]
             
-            # Set N.B. (no binding) to 10^-4 if Kd is NA
+            # Set NB (no binding) to 10^-4 if Kd is NA
             if np.isnan(kd):
-                ax.bar(x_pos, 1e-4, bar_width,
-                       color=base_color, edgecolor='black', linewidth=1,
+                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
+                       bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
-                ax.text(x_pos, 1e-4 * 1.5, 'N.B.', ha='center', va='bottom',
-                       fontsize=10, fontweight='bold', color='black')
+                ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',
+                       fontsize=6, fontweight='bold', color='black')
                 continue
             
             inverse_kd = 1 / kd if kd > 0 else 0
@@ -719,10 +791,10 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                 yerr_lower = 0
                 yerr_upper = 0
             
-            ax.bar(x_pos, inverse_kd, bar_width,
-                   color=base_color, edgecolor='black', linewidth=1)
+            ax.bar(x_pos, inverse_kd - bar_bottom, bar_width,
+                   bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1)
             ax.errorbar(x_pos, inverse_kd, yerr=[[yerr_lower], [yerr_upper]],
-                       fmt='none', ecolor='black', capsize=5, capthick=2)
+                       fmt='none', ecolor='black', capsize=4, capthick=1)
         
         else:  # two-site
             kd1 = metal_data['Kd1'].values[0]
@@ -731,11 +803,11 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             kd2_err = metal_data['Kd2_Error'].values[0]
             
             if np.isnan(kd1):
-                ax.bar(x_pos, 1e-4, bar_width,
-                       color=base_color, edgecolor='black', linewidth=1,
+                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
+                       bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
-                ax.text(x_pos, 1e-4 * 1.1, 'N.B.', ha='center', va='bottom',
-                       fontsize=8, fontweight='bold', color='black')
+                ax.text(x_pos, 1e-4 * 1.1, 'NB', ha='center', va='bottom',
+                       fontsize=6, fontweight='bold', color='black')
                 continue
             
             inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
@@ -769,42 +841,35 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
             lighter_color = tuple(c * 0.5 + 0.5 for c in base_rgb[:3]) + (base_rgb[3],)
             
             offset = bar_width * 0.55
-            ax.bar(x_pos - offset, inverse_kd1, bar_width,
-                   color=base_color, edgecolor='black', linewidth=1,
+            ax.bar(x_pos - offset, inverse_kd1 - bar_bottom, bar_width,
+                   bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                    label='Site 1' if metal_idx == 0 else '')
             ax.errorbar(x_pos - offset, inverse_kd1, yerr=[[yerr_lower1], [yerr_upper1]],
-                       fmt='none', ecolor='black', capsize=5, capthick=2)
-            ax.bar(x_pos + offset, inverse_kd2, bar_width,
-                   color=lighter_color, edgecolor='black', linewidth=1,
+                       fmt='none', ecolor='black', capsize=4, capthick=1)
+            ax.bar(x_pos + offset, inverse_kd2 - bar_bottom, bar_width,
+                   bottom=bar_bottom, color=lighter_color, edgecolor='black', linewidth=1,
                    label='Site 2' if metal_idx == 0 else '')
             ax.errorbar(x_pos + offset, inverse_kd2, yerr=[[yerr_lower2], [yerr_upper2]],
-                       fmt='none', ecolor='black', capsize=5, capthick=2)
+                       fmt='none', ecolor='black', capsize=4, capthick=1)
     
     ax.set_ylabel('Kd (M)', fontsize=10)
     ax.set_yscale('log')
-    ax.set_ylim(10e-5,1000)
-    ax.set_xlabel('Metal', fontsize=10)
-    ax.set_title(f'DSF Binding Affinity for {protein_name} at {temp_value:.1f}°C', pad=20)
+    ax.set_ylim(10e-5, 1000)
+    ax.set_title(f'{protein_name} - DSF Binding Affinity at {temp_value:.1f}°C', pad=20)
+    ax.set_xlim(-0.5, len(all_metals) - 0.5)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(all_metals, rotation=0)
+    ax.set_xticklabels(all_metals, rotation=0, fontsize=6)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
-    # Replace y-tick labels with Kd values in log10 format (convert µM to M)
-    yticks = ax.get_yticks()
-    kd_labels = []
-    for tick in yticks:
-        if tick > 0:
-            kd_val_um = 1/tick  # Kd in µM
-            kd_val_m = kd_val_um / 1e6  # Convert to M
-            log_kd = np.log10(kd_val_m)
-            # Format as 10^x with superscript
-            if log_kd == int(log_kd):
-                kd_labels.append(f'10$^{{{int(log_kd)}}}$')
-            else:
-                kd_labels.append(f'10$^{{{log_kd:.1f}}}$')
-        else:
-            kd_labels.append('∞')
+    # Set explicit ticks at clean Kd decade values in M, converted to inverse-Kd (µM⁻¹) plot units
+    kd_decades_m = [1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
+    tick_positions = [1 / (kd_m * 1e6) for kd_m in kd_decades_m]  # convert M → µM, then invert
+    ymin, ymax = ax.get_ylim()
+    tick_positions = [t for t in tick_positions if ymin <= t <= ymax]
+    kd_labels = [f'10$^{{{int(np.log10(kd))}}}$' for kd in kd_decades_m
+                 if ymin <= 1 / (kd * 1e6) <= ymax]
+    ax.set_yticks(tick_positions)
     ax.set_yticklabels(kd_labels)
     
     if model == 'two-site':
@@ -812,8 +877,25 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     
     plt.tight_layout()
     protein_lower = protein_name.lower()
-    plt.savefig(f'{protein_lower}_kd_bar_chart.png', dpi=300, bbox_inches='tight')
+    save_vector_pdf(f'{protein_lower}_kd_bar_chart.pdf')
     plt.show()
+
+def save_vector_pdf(filename):
+    """Save current figure as a fully vector PDF by disabling per-artist rasterization."""
+    fig = plt.gcf()
+    for ax in fig.get_axes():
+        for artist in ax.get_children():
+            if hasattr(artist, 'set_rasterized'):
+                artist.set_rasterized(False)
+    fig.savefig(filename, bbox_inches='tight', backend='pdf')
+
+def save_command_txt(protein_name):
+    """Save the command used to run this analysis"""
+    import sys
+    protein_lower = protein_name.lower()
+    command = ' '.join(sys.argv)
+    with open(f'{protein_lower}_command.txt', 'w') as f:
+        f.write(command + '\n')
 
 def save_results_csv(titration_df, kd_results, protein_name):
     """Save titration and Kd results to CSV files"""
