@@ -736,7 +736,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Apo']]
     all_metals = sorted(all_metals, key=get_atomic_number)
 
-    fig, ax = plt.subplots(figsize=(4, 3))
+    fig, ax = plt.subplots(figsize=(3, 3))
     
     x_positions = np.arange(len(all_metals))
     bar_width = 0.6
@@ -768,7 +768,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                        bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',
-                       fontsize=6, fontweight='bold', color='black')
+                       fontsize=10, fontweight='bold', color='black')
                 continue
             
             inverse_kd = 1 / kd if kd > 0 else 0
@@ -801,7 +801,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                        bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.1, 'NB', ha='center', va='bottom',
-                       fontsize=6, fontweight='bold', color='black')
+                       fontsize=10, fontweight='bold', color='black')
                 continue
             
             inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
@@ -852,7 +852,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     ax.set_title(f'{protein_name} - DSF Binding Affinity at {temp_value:.1f}°C', pad=20)
     ax.set_xlim(-0.5, len(all_metals) - 0.5)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(all_metals, rotation=0, fontsize=6)
+    ax.set_xticklabels(all_metals, rotation=0, fontsize=10)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
