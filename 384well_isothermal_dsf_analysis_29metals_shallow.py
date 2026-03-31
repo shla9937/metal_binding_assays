@@ -295,6 +295,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf", bbox_inches='tight', backend='pdf')
+    plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.png", bbox_inches='tight', dpi=300)
     plt.show()
 
 def smooth_wells(df):
@@ -385,6 +386,7 @@ def plot_tms(df, protein_name):
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_tm_vs_concentration.pdf', bbox_inches='tight', backend='pdf')
+    plt.savefig(f'{protein_lower}_tm_vs_concentration.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def binding_curve_hill(conc, kd, ymin, ymax, n):
@@ -716,6 +718,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_metal_titrations.pdf', bbox_inches='tight', backend='pdf')
+    plt.savefig(f'{protein_lower}_metal_titrations.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def plot_kd_bars(df, kd_results, protein_name, model='hill'):
@@ -872,6 +875,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_kd_bar_chart.pdf', bbox_inches='tight', backend='pdf')
+    plt.savefig(f'{protein_lower}_kd_bar_chart.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def save_command_txt(protein_name):
