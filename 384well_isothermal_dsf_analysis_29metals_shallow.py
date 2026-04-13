@@ -17,7 +17,7 @@ import matplotlib.colors
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze 384 well DSF 8 metal, triplicate experiment.")
-    parser.add_argument('-c', '--csv', type=str, required=True, help="Raw DSF values from DA2")
+    parser.add_argument('-c', '--csv', type=str, nargs='+', required=True, help="Raw DSF values from DA2 (one or more files; multiple files are averaged together)")
     parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
     parser.add_argument('-ht', '--high_temp', type=float, required=False, help="Exclude temps over this value")
     parser.add_argument('-lt', '--low_temp', type=float, required=False, help="Exclude temps under this value")
@@ -33,25 +33,36 @@ def main():
     parser.add_argument('-r', '--r2_threshold', type=float, default=0.7,
                         help="Minimum R² required to accept a fit (default: 0.7)")
     args = parser.parse_args()
-    
-    df = parse_csv_file(args.csv)
-    if args.high_temp:
-        df = exclude_high_temps(df, args.high_temp)
-    if args.low_temp:
-        df = exclude_low_temps(df, args.low_temp)
-    raw_df = assign_conc(df)
-    if args.exclude_wells:
-        raw_df = exclude_wells(raw_df, args.exclude_wells)
-    if args.exclude_high > 0:
-        raw_df = exclude_high_conc(raw_df, args.exclude_high)
-    if args.exclude_low > 0:
-        raw_df = exclude_low_conc(raw_df, args.exclude_low)
-    smoothed_df = smooth_wells(raw_df)
-    norm_df = normalize(smoothed_df)
+
+    raw_dfs = []
+    norm_dfs = []
+    for i, csv_file in enumerate(args.csv):
+        df = parse_csv_file(csv_file)
+        if args.high_temp:
+            df = exclude_high_temps(df, args.high_temp)
+        if args.low_temp:
+            df = exclude_low_temps(df, args.low_temp)
+        df = assign_conc(df)
+        if args.exclude_wells:
+            df = exclude_wells(df, args.exclude_wells)
+        if args.exclude_high > 0:
+            df = exclude_high_conc(df, args.exclude_high)
+        if args.exclude_low > 0:
+            df = exclude_low_conc(df, args.exclude_low)
+        raw_dfs.append(df)
+        # Make Well unique per CSV so smoothing/normalization is done per-well per-file
+        df_rep = df.copy()
+        df_rep['Well'] = df_rep['Well'].astype(str) + f'_rep{i}'
+        smoothed_df = smooth_wells(df_rep)
+        norm_dfs.append(normalize(smoothed_df))
+
+    norm_df = pd.concat(norm_dfs, ignore_index=True)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
     titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model, tm_threshold=args.tm_threshold, r2_threshold=args.r2_threshold)
-    plot_df(raw_df, 'Fluorescence', args.protein)
+    for i, (raw_df, csv_file) in enumerate(zip(raw_dfs, args.csv)):
+        csv_label = os.path.splitext(os.path.basename(csv_file))[0]
+        plot_df(raw_df, 'Fluorescence', f"{args.protein} ({csv_label})")
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error', override=args.override)
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
