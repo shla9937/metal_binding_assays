@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -29,9 +30,11 @@ def main():
     parser.add_argument('-w', '--exclude_wells', type=str, nargs='+', default=[],
                         help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
     parser.add_argument('-T', '--tm_threshold', type=float, default=1.0,
-                        help="Minimum Tm change (°C) required to consider binding (default: 3.0)")
+                        help="Minimum Tm change (°C) required to consider binding (default: 1.0)")
     parser.add_argument('-r', '--r2_threshold', type=float, default=0.7,
                         help="Minimum R² required to accept a fit (default: 0.7)")
+    parser.add_argument('-s', '--signal_threshold', type=float, default=0.1,
+                        help="Minimum signal range (0-1) across concentrations at analysis temperature required to consider binding (default: 0.1)")
     args = parser.parse_args()
     
     df = parse_csv_file(args.csv)
@@ -50,7 +53,7 @@ def main():
     norm_df = normalize(smoothed_df)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
-    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model, tm_threshold=args.tm_threshold, r2_threshold=args.r2_threshold)
+    titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model, tm_threshold=args.tm_threshold, r2_threshold=args.r2_threshold, signal_threshold=args.signal_threshold)
     plot_df(raw_df, 'Fluorescence', args.protein)
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error', override=args.override)
     plot_tms(avg_tm_df, args.protein)
@@ -181,9 +184,7 @@ def assign_conc(df):
             df.loc[df['Well Position'] == well_pos, 'Concentration'] = concentrations[well-13]
     return df
 
-# Atomic number sorting helper
 def get_atomic_number(metal_name):
-    """Get atomic number for sorting metals"""
     atomic_numbers = {
         'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10,
         'Na': 11, 'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18,
@@ -196,8 +197,7 @@ def get_atomic_number(metal_name):
         'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71, 'Hf': 72, 'Ta': 73, 'W': 74,
         'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81, 'Pb': 82,
         'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89, 'Th': 90,
-        'Pa': 91, 'U': 92
-    }
+        'Pa': 91, 'U': 92}
     element = ''.join(c for c in metal_name if c.isalpha())
     return atomic_numbers.get(element, 999)
 
@@ -337,11 +337,13 @@ def find_tms(df):
         temps = group['Temperature'].values
         fluor = group['Average Normalized Fluorescence'].values
         
-        # Data is already smoothed per well before normalization; compute derivative directly
         derivative = np.gradient(fluor, temps)
-        
-        # Find peak of derivative (steepest slope = Tm)
-        peak_idx = np.argmax(derivative)
+        wl = min(len(derivative), 11)
+        if wl % 2 == 0:
+            wl -= 1
+        if wl >= 5:
+            derivative = savgol_filter(derivative, wl, 2)
+        peak_idx = np.argmax(derivative)  # Find peak of smoothed derivative (steepest slope = Tm)
         tm = temps[peak_idx]
         
         tm_values.append(tm)
@@ -408,7 +410,6 @@ def binding_curve_quadratic(conc, kd, ymin, ymax):
     return ymin + (ymax - ymin) * fraction_bound
 
 def fit_binding_curve(concentrations, values, errors, model='hill'):
-    """Fit binding curve and return parameters with confidence intervals"""
     try:
         # Initial parameter guesses
         ymin_guess = np.min(values)
@@ -419,7 +420,6 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
         errors = np.where(errors == 0, 1e-10, errors)
         
         if model == 'hill':
-            # Hill equation with coefficient
             n_guess = 1.0  # Hill coefficient
             popt, pcov = curve_fit(
                 binding_curve_hill, 
@@ -446,7 +446,6 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
                     'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'hill'}
         
         elif model == 'two-site':
-            # Two independent binding sites
             kd1_guess = kd_guess * 0.1  
             kd2_guess = kd_guess * 10 
             popt, pcov = curve_fit(
@@ -509,101 +508,89 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan,
                     'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
 
-def find_kds(df, override=None, model='hill', tm_threshold=3.0, r2_threshold=0.7):
+def _null_fit(model, r_squared):
+    base = {'R_squared': r_squared, 'Fit_Params': None, 'Model': model}
+    if model == 'hill':
+        return {**base, 'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan}
+    elif model == 'quadratic':
+        return {**base, 'Kd': np.nan, 'Kd_Error': np.nan}
+    else:
+        return {**base, 'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan}
+
+def find_kds(df, override=None, model='hill', tm_threshold=1.0, r2_threshold=0.7, signal_threshold=0.1):
     apo_tm = df[df['Metal'] == 'Apo'].groupby('Concentration')['Tm'].first().mean()
     kd_data = []
-    
+
     for (metal, conc), group in df.groupby(['Metal', 'Concentration']):
         group = group.sort_values('Temperature')
         temps = group['Temperature'].values
         smoothed_fluor = group['Smoothed Fluorescence'].values
         std_err = group['Standard Error'].values
-        
-        apo_idx = np.argmin(np.abs(temps - apo_tm))
-        apo_fluor = smoothed_fluor[apo_idx]
-        apo_se = std_err[apo_idx]
-        
         data_dict = {
             'Metal': metal,
             'Concentration': conc,
             'Apo Tm Temperature': apo_tm,
-            'Apo Tm': apo_fluor,
-            'Apo Tm Standard Error': apo_se
-        }
-        
+            'Apo Tm': np.interp(apo_tm, temps, smoothed_fluor),
+            'Apo Tm Standard Error': np.interp(apo_tm, temps, std_err)}
         if override is not None:
-            override_idx = np.argmin(np.abs(temps - override))
-            override_fluor = smoothed_fluor[override_idx]
-            override_se = std_err[override_idx]
-            data_dict['Override Temperature'] = override
-            data_dict['Override Tm'] = override_fluor
-            data_dict['Override Tm Standard Error'] = override_se
-        
+            data_dict.update({
+                'Override Temperature': override,
+                'Override Tm': np.interp(override, temps, smoothed_fluor),
+                'Override Tm Standard Error': np.interp(override, temps, std_err)})
         kd_data.append(data_dict)
-    
+
     kd_df = pd.DataFrame(kd_data)
     kd_list = []
 
     for metal in kd_df['Metal'].unique():
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
-
-        # Compute max Tm change only over the included concentrations
         included_concs = metal_data['Concentration'].values
         metal_tms = df[(df['Metal'] == metal) & (df['Concentration'].isin(included_concs))].groupby('Concentration')['Tm'].first()
         tm_change = metal_tms.max() - metal_tms.min()
         concs = metal_data['Concentration'].values
-        apo_vals = 1 - metal_data['Apo Tm'].values
-        apo_errs = metal_data['Apo Tm Standard Error'].values
-        
-        fit_result = fit_binding_curve(concs, apo_vals, apo_errs, model=model)
-        
-        # Quality control: reject fits with poor R² or insufficient Tm change
-        if not np.isnan(fit_result['R_squared']):
-            if fit_result['R_squared'] < r2_threshold or tm_change <= tm_threshold:
-                if model == 'hill':
-                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan,
-                                 'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
-                                 'Fit_Params': None, 'Model': 'hill'}
-                elif model == 'quadratic':
-                    fit_result = {'Kd': np.nan, 'Kd_Error': np.nan,
-                                 'R_squared': fit_result['R_squared'],
-                                 'Fit_Params': None, 'Model': 'quadratic'}
-                else:
-                    fit_result = {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan,
-                                 'Kd2_Error': np.nan, 'R_squared': fit_result['R_squared'],
-                                 'Fit_Params': None, 'Model': 'two-site'}
-        
-        fit_result['Metal'] = metal
-        fit_result['Temperature'] = 'Apo'
-        kd_list.append(fit_result)
-        
+
+        configs = [('Apo Tm', 'Apo')]
         if override is not None:
-            override_vals = 1 - metal_data['Override Tm'].values
-            override_errs = metal_data['Override Tm Standard Error'].values
-            fit_result = fit_binding_curve(concs, override_vals, override_errs, model=model)
-            
-            # Quality control: reject fits with poor R² or insufficient Tm change
-            if not np.isnan(fit_result['R_squared']):
-                if fit_result['R_squared'] < r2_threshold or tm_change < tm_threshold:
-                    if model == 'hill':
-                        fit_result = {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 
-                                     'Hill_n_Error': np.nan, 'R_squared': fit_result['R_squared'],
-                                     'Fit_Params': None, 'Model': 'hill'}
-                    elif model == 'quadratic':
-                        fit_result = {'Kd': np.nan, 'Kd_Error': np.nan,
-                                     'R_squared': fit_result['R_squared'],
-                                     'Fit_Params': None, 'Model': 'quadratic'}
-                    else:
-                        fit_result = {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan,
-                                     'Kd2_Error': np.nan, 'R_squared': fit_result['R_squared'],
-                                     'Fit_Params': None, 'Model': 'two-site'}
-            
+            configs.append(('Override Tm', 'Override'))
+
+        for val_col, temp_label in configs:
+            vals = 1 - metal_data[val_col].values
+            errs = metal_data[f'{val_col} Standard Error'].values
+            signal_range = np.max(vals) - np.min(vals)
+            fit_result = fit_binding_curve(concs, vals, errs, model=model)
+            # Quality control: reject fits with poor R², insufficient Tm change, or flat signal
+            if not np.isnan(fit_result['R_squared']) and (
+                    fit_result['R_squared'] < r2_threshold
+                    or tm_change <= tm_threshold
+                    or signal_range < signal_threshold):
+                fit_result = _null_fit(model, fit_result['R_squared'])
             fit_result['Metal'] = metal
-            fit_result['Temperature'] = 'Override'
+            fit_result['Temperature'] = temp_label
             kd_list.append(fit_result)
-    
-    kd_results = pd.DataFrame(kd_list)
-    return kd_df, kd_results
+
+    return kd_df, pd.DataFrame(kd_list)
+
+def _fmt_kd(kd):
+    return f"{kd*1000:.0f}nM" if kd < 1.0 else f"{kd:.1f}µM"
+
+def _kd_label(metal, kd_row, model):
+    r2 = kd_row['R_squared'].values[0]
+    if model == 'two-site':
+        kd1, kd2 = kd_row['Kd1'].values[0], kd_row['Kd2'].values[0]
+        if np.isnan(kd1):
+            return f"{metal}: Kd=N/A"
+        return f"{metal}: Kd1={_fmt_kd(kd1)}, Kd2={_fmt_kd(kd2)}, R²={r2:.3f}"
+    else:
+        kd = kd_row['Kd'].values[0]
+        if np.isnan(kd):
+            return f"{metal}: Kd=N/A"
+        suffix = ' (quad)' if model == 'quadratic' else f", n={kd_row['Hill_n'].values[0]:.2f}"
+        return f"{metal}: Kd={_fmt_kd(kd)}{suffix}, R²={r2:.3f}"
+
+def _eval_fit(model, conc_fit, popt):
+    fn = {'hill': binding_curve_hill, 'quadratic': binding_curve_quadratic,
+          'two-site': binding_curve_two_site}[model]
+    return fn(conc_fit, *popt)
 
 def plot_kds(df, kd_results, protein_name, model='hill'):
     has_override = 'Override Temperature' in df.columns
@@ -631,77 +618,20 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
             errors = metal_data[f'{data_col} Standard Error'].values
             
             color = metal_colors[metal]
-            
             kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
             if not kd_row.empty:
                 popt = kd_row['Fit_Params'].values[0]
-                
-                if model == 'hill':
-                    kd = kd_row['Kd'].values[0]
-                    kd_err = kd_row['Kd_Error'].values[0]
-                    n = kd_row['Hill_n'].values[0]
-                    n_err = kd_row['Hill_n_Error'].values[0]
-                    r2 = kd_row['R_squared'].values[0]
-                    
-                    if not np.isnan(kd):
-                        if kd < 1.0:
-                            kd_nm = kd * 1000
-                            kd_err_nm = kd_err * 1000
-                            label = f"{metal}: Kd={kd_nm:.0f}nM, n={n:.2f}, R²={r2:.3f}"
-                        else:
-                            label = f"{metal}: Kd={kd:.1f}µM, n={n:.2f}, R²={r2:.3f}"
-                    else:
-                        label = f"{metal}: Kd=N/A"
-                
-                elif model == 'quadratic':
-                    kd = kd_row['Kd'].values[0]
-                    kd_err = kd_row['Kd_Error'].values[0]
-                    r2 = kd_row['R_squared'].values[0]
-                    
-                    if not np.isnan(kd):
-                        if kd < 1.0:
-                            label = f"{metal}: Kd={kd*1000:.0f}nM (quad), R²={r2:.3f}"
-                        else:
-                            label = f"{metal}: Kd={kd:.1f}µM (quad), R²={r2:.3f}"
-                    else:
-                        label = f"{metal}: Kd=N/A"
-                        
-                elif model == 'two-site':
-                    kd1 = kd_row['Kd1'].values[0]
-                    kd1_err = kd_row['Kd1_Error'].values[0]
-                    kd2 = kd_row['Kd2'].values[0]
-                    kd2_err = kd_row['Kd2_Error'].values[0]
-                    r2 = kd_row['R_squared'].values[0]
-                    
-                    if not np.isnan(kd1):
-                        if kd1 < 1.0:
-                            kd1_str = f"{kd1*1000:.0f}nM"
-                        else:
-                            kd1_str = f"{kd1:.1f}µM"
-                        if kd2 < 1.0:
-                            kd2_str = f"{kd2*1000:.0f}nM"
-                        else:
-                            kd2_str = f"{kd2:.1f}µM"
-                        label = f"{metal}: Kd1={kd1_str}, Kd2={kd2_str}, R²={r2:.3f}"
-                    else:
-                        label = f"{metal}: Kd=N/A"
+                label = _kd_label(metal, kd_row, model)
             else:
                 popt = None
                 label = f"{metal}: Kd=N/A"
-            
-            ax.errorbar(concentrations, values, yerr=errors, 
-                       color=color, marker='o', linestyle='', 
+
+            ax.errorbar(concentrations, values, yerr=errors,
+                       color=color, marker='o', linestyle='',
                        capsize=3, alpha=0.7, markersize=6)
-            
             if popt is not None:
-                if model == 'hill':
-                    fit_vals = binding_curve_hill(conc_fit, *popt)
-                elif model == 'quadratic':
-                    fit_vals = binding_curve_quadratic(conc_fit, *popt)
-                else:
-                    fit_vals = binding_curve_two_site(conc_fit, *popt)
-                ax.plot(conc_fit, fit_vals, color=color, linestyle='-', 
-                       linewidth=2, alpha=0.8, label=label)
+                ax.plot(conc_fit, _eval_fit(model, conc_fit, popt), color=color,
+                       linestyle='-', linewidth=2, alpha=0.8, label=label)
             else:
                 ax.plot([], [], color=color, label=label)
         
@@ -879,8 +809,6 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     plt.show()
 
 def save_command_txt(protein_name):
-    """Save the command used to run this analysis"""
-    import sys
     protein_lower = protein_name.lower()
     command = ' '.join(sys.argv)
     with open(f'{protein_lower}_command.txt', 'w') as f:
