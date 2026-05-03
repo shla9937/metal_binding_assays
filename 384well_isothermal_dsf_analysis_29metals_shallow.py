@@ -32,6 +32,17 @@ def main():
     parser.add_argument('-s','--signal_threshold',type=float,default=0.1,help="Minimum signal range (0-1) across concentrations at analysis temperature required to consider binding (default: 0.1)")
     args = parser.parse_args()
 
+    global metals_left, metals_right, concentrations, protein_conc
+    # which metal is being titrated in columns 1-12, A-P)
+    metals_left = ["Li⁺", "Cu²⁺", "Mg²⁺", "Zn²⁺", "K⁺", "Rb⁺", "Ca²⁺", "Sr²⁺",
+                   "Sc³⁺", "Y³⁺", "Mn²⁺", "Cs⁺", "Co²⁺", "Ba²⁺", "Ni²⁺", "La³⁺"]
+    # which metal is being titrated in columns 13-24, A-P)
+    metals_right = ["Ce³⁺", "Ho³⁺", "Pr³⁺", "Er³⁺", "Nd³⁺", "Tm³⁺", "Sm³⁺", "Yb³⁺",
+                   "Eu³⁺", "Lu³⁺", "Gd³⁺", "EDTA", "Tb³⁺", "EDTA", "Dy³⁺", "Apo"]
+    # metal concentrations in µM
+    concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488] 
+    protein_conc = 5  # µM
+
     raw_dfs = []
     norm_dfs = []
     for i, csv_file in enumerate(args.csv):
@@ -125,17 +136,9 @@ def exclude_low_conc(df, exclude_low):
     return df_filtered
 
 def assign_conc(df):
-    global metals_left, metals_right, rows, metal_colors, protein_conc
+    global rows, metal_colors
     df['Metal'] = None
     df['Concentration'] = np.nan
-    protein_conc = 5  # µM
-    # which metal is being titrated in columns 1-12, A-P)
-    metals_left = ["Li⁺", "Cu²⁺", "Mg²⁺", "Zn²⁺", "K⁺", "Rb⁺", "Ca²⁺", "Sr²⁺",
-                   "Sc³⁺", "Y³⁺", "Mn²⁺", "Cs⁺", "Co²⁺", "Ba²⁺", "Ni²⁺", "La³⁺"]
-    # which metal is being titrated in columns 13-24, A-P)
-    metals_right = ["Ce³⁺", "Ho³⁺", "Pr³⁺", "Er³⁺", "Nd³⁺", "Tm³⁺", "Sm³⁺", "Yb³⁺",
-                   "Eu³⁺", "Lu³⁺", "Gd³⁺", "EDTA", "Tb³⁺", "EDTA", "Dy³⁺", "Apo"]
-    concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
     metal_colors = {
         # Colored aqueous chloride solutions
