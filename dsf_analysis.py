@@ -94,7 +94,6 @@ def metal_setup(metal_set):
     tm_threshold = 1.0
     r2_threshold = 0.8
     signal_threshold = 0.15
-
     return True
 
 def parse_csv_file(csv):
@@ -126,7 +125,6 @@ def exclude_high_conc(df, exclude_high):
         concs_to_exclude = unique_concs[:exclude_high]
     
     df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
-    
     return df_filtered
 
 def exclude_wells(df, wells):
@@ -135,15 +133,11 @@ def exclude_wells(df, wells):
 
 def exclude_low_conc(df, exclude_low):
     unique_concs = sorted([c for c in df['Concentration'].unique() if c > 0], reverse=True)
-    # Get the N highest concentrations to exclude
     if exclude_low >= len(unique_concs):
-        # If trying to exclude all or more, exclude all except the lowest
         concs_to_exclude = unique_concs[:-1]
     else:
         concs_to_exclude = unique_concs[-exclude_low:]
-    # Remove rows with those concentrations
-    df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
-    
+    df_filtered = df[~df['Concentration'].isin(concs_to_exclude)] 
     return df_filtered
 
 def assign_conc(df):
@@ -291,8 +285,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
                     conc_idx = concentrations.index(conc) if conc in concentrations else 0
                     color = matplotlib.colors.to_rgba(metal_colors[metal])
                     color = tuple(c * (1 - conc_idx / max(len(concentrations)-1, 1)) for c in color[:3]) + (color[3],)
-                    ax.plot(well_data['Temperature'], well_data[y_column], 
-                           label=f"{well_pos} ({conc:.3g} µM)", alpha=0.8, color=color)
+                    ax.plot(well_data['Temperature'], well_data[y_column], label=f"{well_pos} ({conc:.3g} µM)", alpha=0.8, color=color)
                 
                 ax.set_xlabel('Temperature (°C)', fontsize=10)
                 ax.set_ylabel(y_column, fontsize=10)
@@ -300,9 +293,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
                 if snr_df is not None:
                     well_snrs = snr_df[snr_df['Well Position'].isin(well_positions)]['SNR'].dropna()
                     if len(well_snrs) > 0:
-                        snr_title = (f"Row {row} - {metal}\n"
-                                     f"SNR: med={well_snrs.median():.0f}, "
-                                     f"min={well_snrs.min():.0f}, max={well_snrs.max():.0f}")
+                        snr_title = (f"Row {row} - {metal}\n"f"SNR: med={well_snrs.median():.0f},"f"min={well_snrs.min():.0f},max={well_snrs.max():.0f}")
                     else:
                         snr_title = f"Row {row} - {metal}"
                 else:
@@ -333,8 +324,7 @@ def smooth_wells(df):
             return savgol_filter(x.values, wl, 3)
         return x.values
     df['Smoothed Fluorescence'] = df.groupby('Well')['Fluorescence'].transform(_smooth)
-    # DA2 exports -dF/dT; negate so the rising inflection becomes the maximum
-    df['Smoothed Derivative'] = -df.groupby('Well')['Derivative'].transform(_smooth)
+    df['Smoothed Derivative'] = -df.groupby('Well')['Derivative'].transform(_smooth) #flip derv sign
     return df
 
 def normalize(df):
@@ -403,7 +393,6 @@ def plot_tms(df, protein_name):
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=6, ncol=6, frameon=True, borderaxespad=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_tm_vs_concentration.pdf', bbox_inches='tight', backend='pdf')
@@ -455,7 +444,6 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             ss_res = np.sum((values - y_pred)**2)
             ss_tot = np.sum((values - np.mean(values))**2)
             r_squared = 1 - (ss_res / ss_tot)
-            
             return {'Kd': kd, 'Kd_Error': kd_err, 'Hill_n': n, 'Hill_n_Error': n_err, 
                     'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'hill'}
         
@@ -485,7 +473,6 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             ss_res = np.sum((values - y_pred)**2)
             ss_tot = np.sum((values - np.mean(values))**2)
             r_squared = 1 - (ss_res / ss_tot)
-            
             return {'Kd1': kd1, 'Kd1_Error': kd1_err, 'Kd2': kd2, 'Kd2_Error': kd2_err,
                     'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'two-site'}
         
@@ -508,7 +495,6 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             ss_res = np.sum((values - y_pred)**2)
             ss_tot = np.sum((values - np.mean(values))**2)
             r_squared = 1 - (ss_res / ss_tot)
-            
             return {'Kd': kd, 'Kd_Error': kd_err, 'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'quadratic'}
     except:
         if model == 'hill':
@@ -518,7 +504,7 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
         else:
             return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan, 'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
 
-def _null_fit(model, r_squared):
+def null_fit(model, r_squared):
     base = {'R_squared': r_squared, 'Fit_Params': None, 'Model': model}
     if model == 'hill':
         return {**base, 'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan}
@@ -567,33 +553,32 @@ def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
                         or (not np.isnan(fit_result['R_squared'])
                             and fit_result['R_squared'] < r2_threshold))
             if fails_qc:
-                fit_result = _null_fit(model, fit_result['R_squared'])
+                fit_result = null_fit(model, fit_result['R_squared'])
             fit_result['Metal'] = metal
             fit_result['Temperature'] = temp_label
             kd_list.append(fit_result)
 
     return kd_df, pd.DataFrame(kd_list)
 
-def _fmt_kd(kd):
+def fmt_kd(kd):
     """Return a human-readable Kd string (nM or µM)."""
     return f"{kd*1000:.0f}nM" if kd < 1.0 else f"{kd:.1f}µM"
 
-def _kd_label(metal, kd_row, model):
-    """Build legend label from a kd_results row."""
+def kd_label(metal, kd_row, model):
     r2 = kd_row['R_squared'].values[0]
     if model == 'two-site':
         kd1, kd2 = kd_row['Kd1'].values[0], kd_row['Kd2'].values[0]
         if np.isnan(kd1):
             return f"{metal}: Kd=N/A"
-        return f"{metal}: Kd1={_fmt_kd(kd1)}, Kd2={_fmt_kd(kd2)}, R²={r2:.3f}"
+        return f"{metal}: Kd1={fmt_kd(kd1)}, Kd2={fmt_kd(kd2)}, R²={r2:.3f}"
     else:
         kd = kd_row['Kd'].values[0]
         if np.isnan(kd):
             return f"{metal}: Kd=N/A"
         suffix = ' (quad)' if model == 'quadratic' else f", n={kd_row['Hill_n'].values[0]:.2f}"
-        return f"{metal}: Kd={_fmt_kd(kd)}{suffix}, R²={r2:.3f}"
+        return f"{metal}: Kd={fmt_kd(kd)}{suffix}, R²={r2:.3f}"
 
-def _eval_fit(model, conc_fit, popt):
+def eval_fit(model, conc_fit, popt):
     fn = {'hill': binding_curve_hill, 'quadratic': binding_curve_quadratic,
           'two-site': binding_curve_two_site}[model]
     return fn(conc_fit, *popt)
@@ -625,14 +610,14 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
             kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
             if not kd_row.empty:
                 popt = kd_row['Fit_Params'].values[0]
-                label = _kd_label(metal, kd_row, model)
+                label = kd_label(metal, kd_row, model)
             else:
                 popt = None
                 label = f"{metal}: Kd=N/A"
 
             ax.errorbar(concentrations, values, yerr=errors, color=color, marker='o', linestyle='', capsize=3, alpha=0.7, markersize=6)
             if popt is not None:
-                ax.plot(conc_fit, _eval_fit(model, conc_fit, popt), color=color,
+                ax.plot(conc_fit, eval_fit(model, conc_fit, popt), color=color,
                        linestyle='-', linewidth=2, alpha=0.8, label=label)
             else:
                 ax.plot([], [], color=color, label=label)
@@ -692,11 +677,8 @@ def plot_kd_bars(df, kd_results, protein_name, model):
             
             # Set N.B. (no binding) to 10^-4 if Kd is NA
             if np.isnan(kd):
-                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
-                       bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
-                       alpha=0.5, hatch='//')
-                ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',
-                       fontsize=6, fontweight='bold', color='black')
+                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,alpha=0.5, hatch='//')
+                ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',fontsize=6, fontweight='bold', color='black')
                 continue
             
             inverse_kd = 1 / kd if kd > 0 else 0
@@ -789,8 +771,7 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     tick_positions = [1 / (kd_m * 1e6) for kd_m in kd_decades_m]  # convert M → µM, then invert
     ymin, ymax = ax.get_ylim()
     tick_positions = [t for t in tick_positions if ymin <= t <= ymax]
-    kd_labels = [f'10$^{{{int(np.log10(kd))}}}$' for kd in kd_decades_m
-                 if ymin <= 1 / (kd * 1e6) <= ymax]
+    kd_labels = [f'10$^{{{int(np.log10(kd))}}}$' for kd in kd_decades_m if ymin <= 1 / (kd * 1e6) <= ymax]
     ax.set_yticks(tick_positions)
     ax.set_yticklabels(kd_labels)
     
