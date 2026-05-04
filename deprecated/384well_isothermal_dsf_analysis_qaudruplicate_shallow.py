@@ -17,61 +17,39 @@ import matplotlib.colors
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze 384 well DSF up to 32 metals.")
-    parser.add_argument('-c','--csv',type=str,nargs='+',required=True,help="Raw DSF values from DA2 (one or more files; multiple files are averaged together)")
-    parser.add_argument('-p','--protein',type=str,required=True,help="Name of protein")
-    parser.add_argument('-ht','--high_temp',type=float,required=False,help="Exclude temps over this value")
-    parser.add_argument('-lt','--low_temp',type=float,required=False,help="Exclude temps under this value")
-    parser.add_argument('-o','--override',type=float,required=False,help="Override analysis temperature")
-    parser.add_argument('-x','--exclude_high',type=int,default=0,help="Number of highest concentrations to exclude from fitting")
-    parser.add_argument('-l','--exclude_low',type=int,default=0,help="Number of lowest concentrations to exclude from fitting")
-    parser.add_argument('-m','--model',type=str,default='hill',choices=['hill','two-site','quadratic'],help="Binding model: 'hill' , 'two-site' , or 'quadratic'")
-    parser.add_argument('-w','--exclude_wells',type=str,nargs='+',default=[],help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
-    parser.add_argument('-T','--tm_threshold',type=float,default=1.0,help="Minimum Tm change (°C) required to consider binding (default: 1.0)")
-    parser.add_argument('-r','--r2_threshold',type=float,default=0.7,help="Minimum R² required to accept a fit (default: 0.7)")
-    parser.add_argument('-s','--signal_threshold',type=float,default=0.2,help="Minimum signal range (0-1) across concentrations at analysis temperature required to consider binding (default: 0.1)")
+    parser = argparse.ArgumentParser(description="Analyze 384 well DSF 8 metal, triplicate experiment.")
+    parser.add_argument('-c', '--csv', type=str, required=True, help="Raw DSF values from DA2")
+    parser.add_argument('-p', '--protein', type=str, required=True, help="Name of protein")
+    parser.add_argument('-ht', '--high_temp', type=float, required=False, help="Exclude temps over this value")
+    parser.add_argument('-lt', '--low_temp', type=float, required=False, help="Exclude temps under this value")
+    parser.add_argument('-o', '--override', type=float, required=False, help="Override analysis temperature")
+    parser.add_argument('-x', '--exclude_high', type=int, default=0, help="Number of highest concentrations to exclude from fitting")
+    parser.add_argument('-l', '--exclude_low', type=int, default=0, help="Number of lowest concentrations to exclude from fitting")
+    parser.add_argument('-m', '--model', type=str, default='hill', choices=['hill', 'two-site', 'quadratic'], help="Binding model: 'hill' (Hill equation with n), 'two-site' (two independent sites), or 'quadratic' (quadratic binding, accounts for ligand depletion)")
+    parser.add_argument('-w', '--exclude_wells', type=str, nargs='+', default=[],help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
+    parser.add_argument('-T', '--tm_threshold', type=float, default=1.0,help="Minimum Tm change (°C) required to consider binding (default: 1.0)")
+    parser.add_argument('-r', '--r2_threshold', type=float, default=0.7,help="Minimum R² required to accept a fit (default: 0.7)")
+    parser.add_argument('-s', '--signal_threshold', type=float, default=0.2,help="Minimum signal range (0-1) across concentrations at analysis temperature required to consider binding (default: 0.1)")
     args = parser.parse_args()
-
-    global metals_left, metals_right, concentrations, protein_conc
-    # which metal is being titrated in columns 1-12, A-P)
-    metals_left = ["Li⁺", "Cu²⁺", "Mg²⁺", "Zn²⁺", "K⁺", "Rb⁺", "Ca²⁺", "Sr²⁺",
-                   "Sc³⁺", "Y³⁺", "Mn²⁺", "Cs⁺", "Co²⁺", "Ba²⁺", "Ni²⁺", "La³⁺"]
-    # which metal is being titrated in columns 13-24, A-P)
-    metals_right = ["Ce³⁺", "Ho³⁺", "Pr³⁺", "Er³⁺", "Nd³⁺", "Tm³⁺", "Sm³⁺", "Yb³⁺",
-                   "Eu³⁺", "Lu³⁺", "Gd³⁺", "EDTA", "Tb³⁺", "EDTA", "Dy³⁺", "Apo"]
-    # metal concentrations in µM
-    concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488] 
-    protein_conc = 5  # µM
-
-    raw_dfs = []
-    norm_dfs = []
-    for i, csv_file in enumerate(args.csv):
-        df = parse_csv_file(csv_file)
-        if args.high_temp:
-            df = exclude_high_temps(df, args.high_temp)
-        if args.low_temp:
-            df = exclude_low_temps(df, args.low_temp)
-        df = assign_conc(df)
-        if args.exclude_wells:
-            df = exclude_wells(df, args.exclude_wells)
-        if args.exclude_high > 0:
-            df = exclude_high_conc(df, args.exclude_high)
-        if args.exclude_low > 0:
-            df = exclude_low_conc(df, args.exclude_low)
-        raw_dfs.append(df)
-        # Make Well unique per CSV so smoothing/normalization is done per-well per-file
-        df_rep = df.copy()
-        df_rep['Well'] = df_rep['Well'].astype(str) + f'_rep{i}'
-        smoothed_df = smooth_wells(df_rep)
-        norm_dfs.append(normalize(smoothed_df))
-
-    norm_df = pd.concat(norm_dfs, ignore_index=True)
+    
+    df = parse_csv_file(args.csv)
+    if args.high_temp:
+        df = exclude_high_temps(df, args.high_temp)
+    if args.low_temp:
+        df = exclude_low_temps(df, args.low_temp)
+    raw_df = assign_conc(df)
+    if args.exclude_wells:
+        raw_df = exclude_wells(raw_df, args.exclude_wells)
+    if args.exclude_high > 0:
+        raw_df = exclude_high_conc(raw_df, args.exclude_high)
+    if args.exclude_low > 0:
+        raw_df = exclude_low_conc(raw_df, args.exclude_low)
+    smoothed_df = smooth_wells(raw_df)
+    norm_df = normalize(smoothed_df)
     avg_df = average(norm_df)
     avg_tm_df = find_tms(avg_df)
     titration_df, kd_results = find_kds(avg_tm_df, override=args.override, model=args.model, tm_threshold=args.tm_threshold, r2_threshold=args.r2_threshold, signal_threshold=args.signal_threshold)
-    for i, (raw_df, csv_file) in enumerate(zip(raw_dfs, args.csv)):
-        csv_label = os.path.splitext(os.path.basename(csv_file))[0]
-        plot_df(raw_df, 'Fluorescence', f"{args.protein} ({csv_label})")
+    plot_df(raw_df, 'Fluorescence', args.protein)
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error', override=args.override)
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
@@ -101,84 +79,83 @@ def exclude_low_temps(df, exclude):
     return df[df['Temperature'] >= exclude]
 
 def exclude_high_conc(df, exclude_high):
-    # Get all unique concentrations (excluding 0)
     unique_concs = sorted([c for c in df['Concentration'].unique() if c > 0], reverse=True)
-    
-    # Get the N highest concentrations to exclude
     if exclude_high >= len(unique_concs):
-        # If trying to exclude all or more, exclude all except the lowest
         concs_to_exclude = unique_concs[:-1]
     else:
         concs_to_exclude = unique_concs[:exclude_high]
     
-    # Remove rows with those concentrations
     df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
     
     return df_filtered
 
 def exclude_wells(df, wells):
-    """Remove specific well positions from the dataframe"""
-    # Normalise input to uppercase and strip whitespace
     wells_normalised = [w.strip().upper() for w in wells]
     return df[~df['Well Position'].str.upper().isin(wells_normalised)]
 
 def exclude_low_conc(df, exclude_low):
     unique_concs = sorted([c for c in df['Concentration'].unique() if c > 0], reverse=True)
-    # Get the N highest concentrations to exclude
     if exclude_low >= len(unique_concs):
-        # If trying to exclude all or more, exclude all except the lowest
         concs_to_exclude = unique_concs[:-1]
     else:
         concs_to_exclude = unique_concs[-exclude_low:]
-    # Remove rows with those concentrations
     df_filtered = df[~df['Concentration'].isin(concs_to_exclude)]
     
     return df_filtered
 
 def assign_conc(df):
-    global rows, metal_colors
+    global metals_left, metals_right, rows, metal_colors, protein_conc
     df['Metal'] = None
     df['Concentration'] = np.nan
+    protein_conc = 5  # µM
+    # which metal is being titrated in columns 1-12, A-P)
+    metals_left = ["Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
+                   "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
+    # which metal is being titrated in columns 13-24, A-P)
+    metals_right = ["Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
+                   "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
+    concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
     metal_colors = {
         # Colored aqueous chloride solutions
-        "Mn²⁺": "#FF1493",    
-        "Co²⁺": "#8B008B",    
-        "Ni²⁺": "#00C853",    
-        "Cu²⁺": "#1E90FF",    
-        "Nd³⁺": "#8A2BE2",    
-        "Dy³⁺": "#FFD700",   
-        "Pr³⁺": "#80FF20",   
-        "Er³⁺": "#FF4D80",    
-        "Ho³⁺": "#FF9D00",    
+        "Mn²⁺": "#FF1493",    # deep pink (MnCl2 aq is faint pink)
+        "Co²⁺": "#8B008B",    # dark magenta (CoCl2 aq is deep pink/magenta)
+        "Ni²⁺": "#00C853",    # bright green (NiCl2 aq is green)
+        "Cu²⁺": "#1E90FF",    # dodger blue (CuCl2 aq is blue)
+        "Nd³⁺": "#8A2BE2",    # blue violet (NdCl3 aq is lilac/purple)
+        "Dy³⁺": "#FFD700",    # gold (DyCl3 aq is pale yellow)
+        "Pr³⁺": "#80FF20",    # vibrant lime green (PrCl3 aq is yellow-green)
+        "Er³⁺": "#FF4D80",    # vibrant pink (ErCl3 aq is distinctly pink)
+        "Ho³⁺": "#FF9D00",    # vibrant amber (HoCl3 aq is distinctly yellow)
         # Non-metal controls
-        "EDTA": "#FF6600",    
-        "Apo":  "#808080",    
+        "EDTA": "#FF6600",    # bright orange
+        "Apo":  "#808080",    # medium gray
         # Colorless aqueous solutions — unique gray shades
         # Alkali metals
-        "Li⁺":  "#DCE8F0",    
-        "K⁺":   "#E8E8D8",    
-        "Rb⁺":  "#9090A8",    
-        "Cs⁺":  "#707060",   
+        "Li⁺":  "#DCE8F0",    # very light blue-gray
+        "K⁺":   "#E8E8D8",    # very light warm gray
+        "Rb⁺":  "#9090A8",    # medium blue-gray
+        "Cs⁺":  "#707060",    # medium olive-gray
         # Alkaline earth metals
-        "Mg²⁺": "#D8D8D0",   
-        "Ca²⁺": "#C8D0D8",    
-        "Sr²⁺": "#A8B0A8",   
-        "Ba²⁺": "#585858",   
+        "Mg²⁺": "#D8D8D0",    # very light warm gray
+        "Ca²⁺": "#C8D0D8",    # light cool gray
+        "Sr²⁺": "#A8B0A8",    # medium green-gray
+        "Ba²⁺": "#585858",    # dark gray
         # Group 3 / early transition
-        "Sc³⁺": "#989898",   
-        "Y³⁺":  "#686868",    
-        "Zn²⁺": "#C0C0C0",   
-        "La³⁺": "#484858",    
+        "Sc³⁺": "#989898",    # medium gray
+        "Y³⁺":  "#686868",    # medium-dark gray
+        "Zn²⁺": "#C0C0C0",    # silver
+        "La³⁺": "#484858",    # dark blue-gray
         # Colorless lanthanides
-        "Ce³⁺": "#A8C0B0",    
-        "Sm³⁺": "#C8C0B0",   
-        "Eu³⁺": "#C0B0C0",    
-        "Gd³⁺": "#686060",   
-        "Tb³⁺": "#606868",    
-        "Tm³⁺": "#A0A898",   
-        "Yb³⁺": "#787070",    
-        "Lu³⁺": "#404040"}
+        "Ce³⁺": "#A8C0B0",    # light teal-gray
+        "Sm³⁺": "#C8C0B0",    # light warm tan-gray
+        "Eu³⁺": "#C0B0C0",    # light mauve-gray
+        "Gd³⁺": "#686060",    # dark warm gray
+        "Tb³⁺": "#606868",    # dark teal-gray
+        "Tm³⁺": "#A0A898",    # medium warm olive-gray
+        "Yb³⁺": "#787070",    # medium dark warm gray
+        "Lu³⁺": "#404040",    # very dark gray
+    }
 
     for row in rows:
         for well in range(1,13):
@@ -215,6 +192,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
         n_metals = len(unique_metals)
         n_cols = 4
         n_rows = (n_metals + n_cols - 1) // n_cols
+        
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4 * n_rows))
         axes = axes.flatten()
         
@@ -222,12 +200,14 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
             ax = axes[idx]
             metal_data = df[df['Metal'] == metal]
             concentrations = sorted(metal_data['Concentration'].unique())
-
+            
             for conc in concentrations:
                 conc_data = metal_data[metal_data['Concentration'] == conc].sort_values('Temperature')
                 conc_idx = concentrations.index(conc)
+                
                 color = matplotlib.colors.to_rgba(metal_colors[metal])
                 color = tuple(c * (1 - conc_idx / max(len(concentrations)-1, 1)) for c in color[:3]) + (color[3],)
+                
                 ax.errorbar(conc_data['Temperature'], conc_data[y_column], 
                         yerr=conc_data[error_column], label=f"{conc:.3g} µM", 
                         color=color, alpha=0.3)
@@ -263,8 +243,10 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
             for well_range, metal_list, label_suffix in [
                 (range(1, 13), metals_left, "Wells 1-12"),
                 (range(13, 25), metals_right, "Wells 13-24")]:
+                
                 ax = axes[plot_idx]
                 metal = metal_list[rows.index(row)]
+
                 well_positions = [row + str(w) for w in well_range]
                 well_data_subset = df[df['Well Position'].isin(well_positions)]
                 concentrations = sorted(well_data_subset['Concentration'].unique())
@@ -272,13 +254,17 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None):
                 for well in well_range:
                     well_pos = row + str(well)
                     well_data = df[df['Well Position'] == well_pos].sort_values('Temperature')
+                    
+                    # Skip wells with no data (e.g., excluded by exclude_high)
                     if len(well_data) == 0:
                         continue
                     
                     conc = well_data['Concentration'].iloc[0]
                     conc_idx = concentrations.index(conc) if conc in concentrations else 0
+                    
                     color = matplotlib.colors.to_rgba(metal_colors[metal])
                     color = tuple(c * (1 - conc_idx / max(len(concentrations)-1, 1)) for c in color[:3]) + (color[3],)
+                    
                     ax.plot(well_data['Temperature'], well_data[y_column], 
                            label=f"{well_pos} ({conc:.3g} µM)", alpha=0.8, color=color)
                 
@@ -307,6 +293,8 @@ def smooth_wells(df):
             return savgol_filter(x.values, wl, 3)
         return x.values
     df['Smoothed Fluorescence'] = df.groupby('Well')['Fluorescence'].transform(_smooth)
+    # DA2 exports -dF/dT; negate so the rising inflection becomes the maximum
+    df['Smoothed Derivative'] = -df.groupby('Well')['Derivative'].transform(_smooth)
     return df
 
 def normalize(df):
@@ -314,37 +302,43 @@ def normalize(df):
     scaler = MinMaxScaler()
     df['Normalized Fluorescence'] = df.groupby('Well')['Smoothed Fluorescence'].transform(
         lambda x: scaler.fit_transform(x.values.reshape(-1, 1)).flatten())
+    df['Normalized Derivative'] = df.groupby('Well')['Smoothed Derivative'].transform(
+        lambda x: scaler.fit_transform(x.values.reshape(-1, 1)).flatten())
     return df
 
 def average(df):
     df_copy = df.copy()
     df_copy['Temperature'] = df_copy['Temperature'].round(1)
-    avg_df = df_copy.groupby(['Metal', 'Concentration', 'Temperature'])['Normalized Fluorescence'].apply(list).reset_index()
-    avg_df['Average Normalized Fluorescence'] = avg_df['Normalized Fluorescence'].apply(np.mean)
-    avg_df['Standard Error'] = avg_df['Normalized Fluorescence'].apply(lambda x: np.std(x) / np.sqrt(len(x)))
+    grp = df_copy.groupby(['Metal', 'Concentration', 'Temperature'])
+    fluor_df = grp['Normalized Fluorescence'].apply(list).reset_index()
+    fluor_df['Average Normalized Fluorescence'] = fluor_df['Normalized Fluorescence'].apply(np.mean)
+    fluor_df['Standard Error'] = fluor_df['Normalized Fluorescence'].apply(lambda x: np.std(x) / np.sqrt(len(x)))
+    deriv_df = grp['Normalized Derivative'].apply(list).reset_index()
+    deriv_df['Average Normalized Derivative'] = deriv_df['Normalized Derivative'].apply(np.mean)
+    avg_df = fluor_df.merge(deriv_df[['Metal', 'Concentration', 'Temperature', 'Average Normalized Derivative']],
+                            on=['Metal', 'Concentration', 'Temperature'])
     return avg_df
 
 def find_tms(df):
+    # Calculate Tm (peak of first derivative) for each metal-concentration combination
     tm_values = []
     smoothed_values = []
     group_indices = []
-
+    
     for (metal, conc), group in df.groupby(['Metal', 'Concentration']):
         group = group.sort_values('Temperature')
         temps = group['Temperature'].values
         fluor = group['Average Normalized Fluorescence'].values
-        derivative = np.gradient(fluor, temps)
-        wl = min(len(derivative), 11)
-        if wl % 2 == 0:
-            wl -= 1
-        if wl >= 5:
-            derivative = savgol_filter(derivative, wl, 2)
-        peak_idx = np.argmax(derivative)  # Find peak of smoothed derivative (steepest slope = Tm)
+        
+        derivative = group['Average Normalized Derivative'].values
+        peak_idx = np.argmax(derivative)  # Peak of averaged, smoothed, normalized CSV derivative
         tm = temps[peak_idx]
+        
         tm_values.append(tm)
         smoothed_values.append(fluor)
         group_indices.append(group.index)
     
+    # Add Tm and smoothed fluorescence columns to dataframe
     df['Tm'] = np.nan
     df['Smoothed Fluorescence'] = np.nan
     for tm, smoothed, indices in zip(tm_values, smoothed_values, group_indices):
@@ -361,17 +355,21 @@ def plot_tms(df, protein_name):
         metal_df = tm_data[tm_data['Metal'] == metal].sort_values('Concentration')
         concentrations = metal_df['Concentration'].values
         tms = metal_df['Tm'].values
+        
         color = metal_colors[metal]
         ax.scatter(concentrations, tms, color=color, label=metal, s=50, alpha=0.7)
+        
         coeffs = np.polyfit(concentrations, tms, 1)
         fit_line = np.poly1d(coeffs)
+        
         conc_range = np.linspace(concentrations.min(), concentrations.max(), 100)
         ax.plot(conc_range, fit_line(conc_range), color=color, linestyle='-', linewidth=2, alpha=0.8)
     
     ax.set_xlabel('Concentration (µM)', fontsize=10)
     ax.set_ylabel('Tm (°C)', fontsize=10)
     ax.set_title(f'{protein_name} - Tm vs Concentration', fontsize=10)
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=6, ncol=6, frameon=True, borderaxespad=0)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=6, ncol=6,
+              frameon=True, borderaxespad=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
@@ -382,9 +380,11 @@ def plot_tms(df, protein_name):
     plt.show()
 
 def binding_curve_hill(conc, kd, ymin, ymax, n):
+    """Hill equation with Hill coefficient n for cooperativity"""
     return ymin + (ymax - ymin) * conc**n / (kd**n + conc**n)
 
 def binding_curve_two_site(conc, kd1, kd2, ymin, ymax):
+    """Two independent binding sites with different affinities"""
     site1 = conc / (kd1 + conc)
     site2 = conc / (kd2 + conc)
     return ymin + (ymax - ymin) * 0.5 * (site1 + site2)
@@ -403,7 +403,9 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
         ymin_guess = np.min(values)
         ymax_guess = np.max(values)
         kd_guess = np.median(concentrations)
-        errors = np.where(errors == 0, 1e-10, errors) # Replace zero errors with small value to avoid division by zero
+        
+        # Replace zero errors with small value to avoid division by zero
+        errors = np.where(errors == 0, 1e-10, errors)
         
         if model == 'hill':
             n_guess = 1.0  # Hill coefficient
@@ -415,7 +417,8 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
                 sigma=errors,
                 absolute_sigma=True,
                 maxfev=10000,
-                bounds=([0, 0, 0, 0.1], [np.inf, 1, 1, 5]))
+                bounds=([0, 0, 0, 0.1], [np.inf, 1, 1, 5])  # Allow n from 0.1 to 5
+            )
             kd, ymin, ymax, n = popt
             perr = np.sqrt(np.diag(pcov))
             kd_err = perr[0] * 1.96
@@ -441,7 +444,8 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
                 sigma=errors,
                 absolute_sigma=True,
                 maxfev=10000,
-                bounds=([0, 0, 0, 0], [np.inf, np.inf, 1, 1]))
+                bounds=([0, 0, 0, 0], [np.inf, np.inf, 1, 1])
+            )
             kd1, kd2, ymin, ymax = popt
             perr = np.sqrt(np.diag(pcov))
             kd1_err = perr[0] * 1.96
@@ -469,12 +473,12 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
                 sigma=errors,
                 absolute_sigma=True,
                 maxfev=10000,
-                bounds=([0, 0, 0], [np.inf, 1, 1]))
+                bounds=([0, 0, 0], [np.inf, 1, 1])
+            )
             kd, ymin, ymax = popt
             perr = np.sqrt(np.diag(pcov))
             kd_err = perr[0] * 1.96
             
-            # Calculate R²
             y_pred = binding_curve_quadratic(concentrations, *popt)
             ss_res = np.sum((values - y_pred)**2)
             ss_tot = np.sum((values - np.mean(values))**2)
@@ -483,11 +487,14 @@ def fit_binding_curve(concentrations, values, errors, model='hill'):
             return {'Kd': kd, 'Kd_Error': kd_err, 'R_squared': r_squared, 'Fit_Params': popt, 'Model': 'quadratic'}
     except:
         if model == 'hill':
-            return {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan, 'R_squared': np.nan, 'Fit_Params': None, 'Model': 'hill'}
+            return {'Kd': np.nan, 'Kd_Error': np.nan, 'Hill_n': np.nan, 'Hill_n_Error': np.nan, 
+                    'R_squared': np.nan, 'Fit_Params': None, 'Model': 'hill'}
         elif model == 'quadratic':
-            return {'Kd': np.nan, 'Kd_Error': np.nan, 'R_squared': np.nan, 'Fit_Params': None, 'Model': 'quadratic'}
+            return {'Kd': np.nan, 'Kd_Error': np.nan,
+                    'R_squared': np.nan, 'Fit_Params': None, 'Model': 'quadratic'}
         else:
-            return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan, 'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
+            return {'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan,
+                    'R_squared': np.nan, 'Fit_Params': None, 'Model': 'two-site'}
 
 def _null_fit(model, r_squared):
     base = {'R_squared': r_squared, 'Fit_Params': None, 'Model': model}
@@ -519,9 +526,8 @@ def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
         metal_data = kd_df[kd_df['Metal'] == metal].sort_values('Concentration')
         included_concs = metal_data['Concentration'].values
         metal_tms = df[(df['Metal'] == metal) & (df['Concentration'].isin(included_concs))].groupby('Concentration')['Tm'].first()
-        tm_change = metal_tms.max() - metal_tms.min()
+        tm_change = metal_tms.max() - metal_tms.min() # this won't work if you need to override
         concs = metal_data['Concentration'].values
-
         configs = [('Apo Tm', 'Apo')]
         if override is not None:
             configs.append(('Override Tm', 'Override'))
@@ -531,13 +537,8 @@ def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
             errs = metal_data[f'{val_col} Standard Error'].values
             signal_range = np.max(vals) - np.min(vals)
             fit_result = fit_binding_curve(concs, vals, errs, model=model)
-            # Quality control: flat signal and Tm change always apply;
-            # R² threshold only applies when the fit converged
-            fails_qc = (signal_range < signal_threshold
-                        or tm_change <= tm_threshold
-                        or (not np.isnan(fit_result['R_squared'])
-                            and fit_result['R_squared'] < r2_threshold))
-            if fails_qc:
+            # Quality control: reject fits with poor R², insufficient Tm change, or flat signal
+            if not np.isnan(fit_result['R_squared']) and (fit_result['R_squared'] < r2_threshold or tm_change <= tm_threshold or signal_range < signal_threshold):
                 fit_result = _null_fit(model, fit_result['R_squared'])
             fit_result['Metal'] = metal
             fit_result['Temperature'] = temp_label
@@ -546,11 +547,9 @@ def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
     return kd_df, pd.DataFrame(kd_list)
 
 def _fmt_kd(kd):
-    """Return a human-readable Kd string (nM or µM)."""
     return f"{kd*1000:.0f}nM" if kd < 1.0 else f"{kd:.1f}µM"
 
 def _kd_label(metal, kd_row, model):
-    """Build legend label from a kd_results row."""
     r2 = kd_row['R_squared'].values[0]
     if model == 'two-site':
         kd1, kd2 = kd_row['Kd1'].values[0], kd_row['Kd2'].values[0]
@@ -565,13 +564,13 @@ def _kd_label(metal, kd_row, model):
         return f"{metal}: Kd={_fmt_kd(kd)}{suffix}, R²={r2:.3f}"
 
 def _eval_fit(model, conc_fit, popt):
-    """Evaluate the binding curve model over conc_fit."""
     fn = {'hill': binding_curve_hill, 'quadratic': binding_curve_quadratic,
           'two-site': binding_curve_two_site}[model]
     return fn(conc_fit, *popt)
 
 def plot_kds(df, kd_results, protein_name, model='hill'):
     has_override = 'Override Temperature' in df.columns
+    
     plot_configs = [('Apo Tm', 'Apo Tm Temperature', 'Apo')]
     if has_override:
         plot_configs.append(('Override Tm', 'Override Temperature', 'Override'))
@@ -593,6 +592,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
             concentrations = metal_data['Concentration'].values
             values = 1 - metal_data[data_col].values  # Convert to % folded
             errors = metal_data[f'{data_col} Standard Error'].values
+            
             color = metal_colors[metal]
             kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == kd_key)]
             if not kd_row.empty:
@@ -602,10 +602,9 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
                 popt = None
                 label = f"{metal}: Kd=N/A"
 
-            ax.errorbar(concentrations, values, yerr=errors, color=color, marker='o', linestyle='', capsize=3, alpha=0.7, markersize=6)
+            ax.errorbar(concentrations, values, yerr=errors,color=color, marker='o', linestyle='',capsize=3, alpha=0.7, markersize=6)
             if popt is not None:
-                ax.plot(conc_fit, _eval_fit(model, conc_fit, popt), color=color,
-                       linestyle='-', linewidth=2, alpha=0.8, label=label)
+                ax.plot(conc_fit, _eval_fit(model, conc_fit, popt), color=color,linestyle='-', linewidth=2, alpha=0.8, label=label)
             else:
                 ax.plot([], [], color=color, label=label)
         
@@ -614,7 +613,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
         title_name = 'Apo Tm' if kd_key == 'Apo' else 'Override Temp'
         ax.set_title(f'{protein_name} - Titration at {title_name} ({temp_value:.1f}°C)', fontsize=10)
         ax.set_xscale('log')
-        ax.legend(fontsize=6, loc='upper center', bbox_to_anchor=(0.5, -0.2), ncol=3, frameon=True, borderaxespad=0)
+        ax.legend(fontsize=6, loc='upper center', bbox_to_anchor=(0.5, -0.2),ncol=3, frameon=True, borderaxespad=0)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
     
@@ -626,6 +625,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
 
 def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     """Plot bar graph of inverse Kds for each metal"""
+    # Determine which temperature to use (Override if present, otherwise Apo)
     has_override = 'Override Temperature' in df.columns
     if has_override:
         temp_value = df['Override Temperature'].iloc[0]
@@ -634,10 +634,15 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
         temp_value = df['Apo Tm Temperature'].iloc[0]
         temp_key = 'Apo'
     
+    # Filter kd_results for the selected temperature
     kd_results_filtered = kd_results[kd_results['Temperature'] == temp_key].copy()
+    
+    # Get all metals and sort by atomic number
     all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Apo']]
     all_metals = sorted(all_metals, key=get_atomic_number)
-    fig, ax = plt.subplots(figsize=(6, 3))
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    
     x_positions = np.arange(len(all_metals))
     bar_width = 0.6
     
@@ -668,7 +673,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                        bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',
-                       fontsize=6, fontweight='bold', color='black')
+                       fontsize=10, fontweight='bold', color='black')
                 continue
             
             inverse_kd = 1 / kd if kd > 0 else 0
@@ -701,7 +706,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
                        bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
                 ax.text(x_pos, 1e-4 * 1.1, 'NB', ha='center', va='bottom',
-                       fontsize=6, fontweight='bold', color='black')
+                       fontsize=10, fontweight='bold', color='black')
                 continue
             
             inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
@@ -752,7 +757,7 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
     ax.set_title(f'{protein_name} - DSF Binding Affinity at {temp_value:.1f}°C', pad=20)
     ax.set_xlim(-0.5, len(all_metals) - 0.5)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(all_metals, rotation=0, fontsize=6)
+    ax.set_xticklabels(all_metals, rotation=0, fontsize=10)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
@@ -770,8 +775,9 @@ def plot_kd_bars(df, kd_results, protein_name, model='hill'):
         ax.legend(fontsize=8, loc='best')
     
     plt.tight_layout()
-    plt.savefig(f'{protein_name.lower()}_kd_bar_chart.pdf', bbox_inches='tight', backend='pdf')
-    plt.savefig(f'{protein_name.lower()}_kd_bar_chart.png', bbox_inches='tight', dpi=300)
+    protein_lower = protein_name.lower()
+    plt.savefig(f'{protein_lower}_kd_bar_chart.pdf', bbox_inches='tight', backend='pdf')
+    plt.savefig(f'{protein_lower}_kd_bar_chart.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def save_command_txt(protein_name):
@@ -781,10 +787,15 @@ def save_command_txt(protein_name):
         f.write(command + '\n')
 
 def save_results_csv(titration_df, kd_results, protein_name):
+    """Save titration and Kd results to CSV files"""
     protein_lower = protein_name.lower()
     titration_df.to_csv(f'{protein_lower}_titration_data.csv', index=False)
+    
+    # Reorder kd_results columns and convert superscripts
     kd_results_export = kd_results.copy()
     kd_results_export['Metal'] = kd_results_export['Metal'].str.replace('²⁺', '2+').str.replace('³⁺', '3+')
+    
+    # Convert 'Apo' and 'Override' labels to actual temperature values
     apo_temp = titration_df['Apo Tm Temperature'].iloc[0]
     kd_results_export.loc[kd_results_export['Temperature'] == 'Apo', 'Temperature'] = apo_temp
     if 'Override Temperature' in titration_df.columns:
