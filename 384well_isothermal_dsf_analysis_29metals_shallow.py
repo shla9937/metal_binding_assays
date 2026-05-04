@@ -29,7 +29,7 @@ def main():
     parser.add_argument('-w','--exclude_wells',type=str,nargs='+',default=[],help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
     parser.add_argument('-T','--tm_threshold',type=float,default=1.0,help="Minimum Tm change (°C) required to consider binding (default: 1.0)")
     parser.add_argument('-r','--r2_threshold',type=float,default=0.7,help="Minimum R² required to accept a fit (default: 0.7)")
-    parser.add_argument('-s','--signal_threshold',type=float,default=0.1,help="Minimum signal range (0-1) across concentrations at analysis temperature required to consider binding (default: 0.1)")
+    parser.add_argument('-s','--signal_threshold',type=float,default=0.2,help="Minimum signal range (0-1) across concentrations at analysis temperature required to consider binding (default: 0.1)")
     args = parser.parse_args()
 
     global metals_left, metals_right, concentrations, protein_conc
@@ -498,7 +498,7 @@ def _null_fit(model, r_squared):
     else:
         return {**base, 'Kd1': np.nan, 'Kd1_Error': np.nan, 'Kd2': np.nan, 'Kd2_Error': np.nan}
 
-def find_kds(df, override=None, model='hill', tm_threshold=1.0, r2_threshold=0.7, signal_threshold=0.1):
+def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
     apo_tm = df[df['Metal'] == 'Apo'].groupby('Concentration')['Tm'].first().mean()
     kd_data = []
 
@@ -507,17 +507,9 @@ def find_kds(df, override=None, model='hill', tm_threshold=1.0, r2_threshold=0.7
         temps = group['Temperature'].values
         smoothed_fluor = group['Smoothed Fluorescence'].values
         std_err = group['Standard Error'].values
-        data_dict = {
-            'Metal': metal,
-            'Concentration': conc,
-            'Apo Tm Temperature': apo_tm,
-            'Apo Tm': np.interp(apo_tm, temps, smoothed_fluor),
-            'Apo Tm Standard Error': np.interp(apo_tm, temps, std_err)}
+        data_dict = {'Metal': metal,'Concentration': conc,'Apo Tm Temperature': apo_tm,'Apo Tm': np.interp(apo_tm, temps, smoothed_fluor),'Apo Tm Standard Error': np.interp(apo_tm, temps, std_err)}
         if override is not None:
-            data_dict.update({
-                'Override Temperature': override,
-                'Override Tm': np.interp(override, temps, smoothed_fluor),
-                'Override Tm Standard Error': np.interp(override, temps, std_err)})
+            data_dict.update({'Override Temperature': override,'Override Tm': np.interp(override, temps, smoothed_fluor),'Override Tm Standard Error': np.interp(override, temps, std_err)})
         kd_data.append(data_dict)
 
     kd_df = pd.DataFrame(kd_data)
@@ -539,11 +531,13 @@ def find_kds(df, override=None, model='hill', tm_threshold=1.0, r2_threshold=0.7
             errs = metal_data[f'{val_col} Standard Error'].values
             signal_range = np.max(vals) - np.min(vals)
             fit_result = fit_binding_curve(concs, vals, errs, model=model)
-            # Quality control: reject fits with poor R², insufficient Tm change, or flat signal
-            if not np.isnan(fit_result['R_squared']) and (
-                    fit_result['R_squared'] < r2_threshold
-                    or tm_change <= tm_threshold
-                    or signal_range < signal_threshold):
+            # Quality control: flat signal and Tm change always apply;
+            # R² threshold only applies when the fit converged
+            fails_qc = (signal_range < signal_threshold
+                        or tm_change <= tm_threshold
+                        or (not np.isnan(fit_result['R_squared'])
+                            and fit_result['R_squared'] < r2_threshold))
+            if fails_qc:
                 fit_result = _null_fit(model, fit_result['R_squared'])
             fit_result['Metal'] = metal
             fit_result['Temperature'] = temp_label
