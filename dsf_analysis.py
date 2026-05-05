@@ -677,7 +677,10 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     kd_results_filtered = kd_results[kd_results['Temperature'] == temp_key].copy()
     all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Apo']]
     all_metals = sorted(all_metals, key=get_atomic_number)
-    fig, ax = plt.subplots(figsize=(6.9, 2.5))
+    n_metals = len(all_metals)
+    bar_w_inch = 6.9 / 32  # width per bar at full 32-metal scale
+    fig_w = max(1.5, min(6.9, n_metals * bar_w_inch))
+    fig, ax = plt.subplots(figsize=(fig_w, 2.5))
     x_positions = np.arange(len(all_metals))
     bar_width = 0.6
     
@@ -799,7 +802,7 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     ax.set_title(f'{protein_name} - DSF Binding Affinity at {temp_value:.1f}°C', pad=20)
     ax.set_xlim(-0.5, len(all_metals) - 0.5)
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(all_metals, rotation=0, fontsize=6)
+    ax.set_xticklabels(all_metals, rotation=90, ha='right', fontsize=6)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
