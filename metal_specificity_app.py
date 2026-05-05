@@ -15,28 +15,72 @@ from plotly.subplots import make_subplots
 # Helpers
 # ------------------------------
 
-def parse_contents(contents: str, filename: str) -> pd.DataFrame:
-    """Parse uploaded CSV into a tidy DataFrame with Metals as index and Proteins as columns.
-    The first column is interpreted as the metal name/index.
-    """
-    content_type, content_string = contents.split(',')
+def _decode_csv(contents: str) -> pd.DataFrame:
+    """Base64-decode a Dash upload payload and return a DataFrame."""
+    _, content_string = contents.split(',')
     decoded = base64.b64decode(content_string)
     df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-
-    # Use the first column as index (metals)
-    if df.shape[1] < 2:
-        raise ValueError("CSV must have at least two columns: a 'Metal' column and one or more protein columns.")
-
-    df.rename(columns={df.columns[0]: 'Metal'}, inplace=True)
-    df.set_index('Metal', inplace=True)
-
-    # Coerce to numeric (Kd values); non-numeric become NaN
-    df = df.apply(pd.to_numeric, errors='coerce')
-    df = df * 1e-6 # delete if we change the Kd csv to M
-    df = df.dropna(axis=0, how='all').dropna(axis=1, how='all')
-    if df.empty:
-        raise ValueError("No numeric Kd values found after cleaning.")
+    df.columns = [c.strip() for c in df.columns]
     return df
+
+
+def parse_kd_results_csv(df_raw: pd.DataFrame, protein_name: str) -> pd.Series:
+    """Convert a long-form *_kd_results.csv from dsf_analysis.py into a
+    Metal-indexed Series of Kd values in M.
+
+    Selects the Apo-Tm temperature (identified from the 'Apo' metal row).
+    Drops Apo and EDTA control rows.  Kd column is in µM; converts to M.
+    Returns None if the DataFrame does not look like a kd_results file.
+    """
+    if not {'Metal', 'Temperature', 'Kd'}.issubset(df_raw.columns):
+        return None
+
+    # Use the temperature recorded for the Apo metal row as the analysis temperature
+    apo_rows = df_raw[df_raw['Metal'] == 'Apo']
+    target_temp = apo_rows['Temperature'].iloc[0] if not apo_rows.empty else df_raw['Temperature'].iloc[0]
+
+    df_filt = df_raw[df_raw['Temperature'] == target_temp].copy()
+    df_filt = df_filt[~df_filt['Metal'].isin(['Apo', 'EDTA'])]
+    df_filt['Kd_M'] = pd.to_numeric(df_filt['Kd'], errors='coerce') * 1e-6  # µM → M
+    df_filt = df_filt[df_filt['Kd_M'].notna()]
+
+    series = df_filt.set_index('Metal')['Kd_M']
+    series.name = protein_name
+    return series
+
+
+def parse_contents(contents: str, filename: str):
+    """Parse an uploaded CSV.
+
+    Accepts two formats:
+    1. Long-form *_kd_results.csv from dsf_analysis.py — returns a pd.Series
+       (Metal index, Kd in M) named after the protein.
+    2. Wide-form CSV (rows = metals, columns = proteins, values = Kd in µM) —
+       returns a pd.DataFrame (Metal index, protein columns, Kd in M).
+    """
+    df_raw = _decode_csv(contents)
+
+    # --- Long-form kd_results format ---
+    if {'Metal', 'Temperature', 'Kd'}.issubset(df_raw.columns):
+        protein_name = filename
+        for suffix in ('_kd_results.csv', '.csv'):
+            if protein_name.endswith(suffix):
+                protein_name = protein_name[:-len(suffix)]
+                break
+        result = parse_kd_results_csv(df_raw, protein_name)
+        if result is not None:
+            return result
+
+    # --- Wide-form fallback ---
+    if df_raw.shape[1] < 2:
+        raise ValueError("CSV must have at least two columns.")
+    df_raw.rename(columns={df_raw.columns[0]: 'Metal'}, inplace=True)
+    df_raw.set_index('Metal', inplace=True)
+    df_raw = df_raw.apply(pd.to_numeric, errors='coerce') * 1e-6  # µM → M
+    df_raw = df_raw.dropna(axis=0, how='all').dropna(axis=1, how='all')
+    if df_raw.empty:
+        raise ValueError("No numeric Kd values found after cleaning.")
+    return df_raw
 
 def compute_specificity(df: pd.DataFrame):
     """Compute per-protein metrics.
@@ -211,18 +255,19 @@ app.layout = html.Div(
     children=[
         html.H1("Protein–Metal Kd Analyzer"),
         html.P(
-            "Upload a CSV with Metals as rows and Proteins as columns (first column is metal names). "
-            "Cells should be Kd values in molar units (smaller = tighter)."
+            "Upload one or more *_kd_results.csv files from dsf_analysis.py — one file per protein. "
+            "Each file becomes one protein column. Apo and EDTA controls are excluded automatically. "
+            "Wide-form CSVs (rows = metals, columns = proteins, Kd in µM) are also accepted."
         ),
         dcc.Upload(
             id='upload-data',
-            children=html.Div(["Drag and Drop or ", html.A("Select CSV")]),
+            children=html.Div(["Drag and Drop or ", html.A("Select CSV files")]),
             style={
                 'width': '100%', 'height': '60px', 'lineHeight': '60px',
                 'borderWidth': '1px', 'borderStyle': 'dashed', 'borderRadius': '5px',
                 'textAlign': 'center', 'margin': '10px 0'
             },
-            multiple=False
+            multiple=True
         ),
         html.Div(id='file-info', style={'marginBottom': '10px', 'fontStyle': 'italic'}),
         dcc.Graph(id='heatmap', style={'height': '750px'}),
@@ -254,6 +299,17 @@ app.layout = html.Div(
 )
 
 
+def _empty_figure(message: str, color: str = 'black') -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        annotations=[dict(text=message, x=0.5, y=0.5, xref='paper', yref='paper',
+                          showarrow=False, font=dict(size=14, color=color))],
+        xaxis={'visible': False}, yaxis={'visible': False},
+        template='plotly_white', height=500
+    )
+    return fig
+
+
 @app.callback(
     Output('file-info', 'children'),
     Output('heatmap', 'figure'),
@@ -261,50 +317,49 @@ app.layout = html.Div(
     Input('upload-data', 'contents'),
     State('upload-data', 'filename')
 )
+def update_output(contents_list, filenames):
+    if not contents_list:
+        return ("No files uploaded yet.", _empty_figure("Upload CSV files to see the heatmap"), [])
 
-def update_output(contents, filename):
-    if contents is None:
-        # Show an empty placeholder figure
-        placeholder = go.Figure()
-        placeholder.update_layout(
-            annotations=[dict(
-                text="Upload a CSV to see the heatmap",
-                x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False,
-                font=dict(size=16)
-            )],
-            xaxis={'visible': False}, yaxis={'visible': False},
-            template='plotly_white', height=500
-        )
-        return ("No file uploaded yet.", placeholder, [])
+    # Normalise to lists (Dash passes a scalar when multiple=True but only one file dropped)
+    if isinstance(contents_list, str):
+        contents_list = [contents_list]
+        filenames = [filenames]
 
-    try:
-        df = parse_contents(contents, filename or 'uploaded.csv')
-        fig, best_metal, best_kd, specificity = build_figure(df)
+    series_list = []
+    errors = []
 
-        summary = pd.DataFrame({
-            'Protein': df.columns,
-            'Best metal': best_metal.values,
-            'Best Kd (M)': best_kd.values,
-            'Specificity (×)': specificity.values,
-        })
+    for contents, filename in zip(contents_list, filenames or []):
+        try:
+            result = parse_contents(contents, filename or 'uploaded.csv')
+            if isinstance(result, pd.Series):
+                series_list.append(result)
+            elif isinstance(result, pd.DataFrame):
+                for col in result.columns:
+                    series_list.append(result[col])
+        except Exception as e:
+            errors.append(f"{filename}: {e}")
 
-        return (f"Loaded: {filename} — shape {df.shape[0]} metals × {df.shape[1]} proteins.",
-                fig,
-                summary.to_dict('records')) 
+    if not series_list:
+        msg = "Could not parse any files. " + ("Errors: " + "; ".join(errors) if errors else "")
+        return (msg, _empty_figure(msg, color='crimson'), [])
 
-    except Exception as e:
-        # Error figure
-        err_fig = go.Figure()
-        err_fig.update_layout(
-            annotations=[dict(
-                text=f"Error: {str(e)}",
-                x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False,
-                font=dict(size=14, color='crimson')
-            )],
-            xaxis={'visible': False}, yaxis={'visible': False},
-            template='plotly_white', height=400
-        )
-        return (f"Failed to load: {filename}", err_fig, [])
+    df = pd.concat(series_list, axis=1)
+    fig, best_metal, best_kd, specificity = build_figure(df)
+
+    summary = pd.DataFrame({
+        'Protein': df.columns,
+        'Best metal': best_metal.values,
+        'Best Kd (M)': best_kd.values,
+        'Specificity (×)': specificity.values,
+    })
+
+    loaded_names = list(df.columns)
+    info = f"Loaded {len(loaded_names)} protein(s): {', '.join(loaded_names)}. {df.shape[0]} metals."
+    if errors:
+        info += "  Errors: " + "; ".join(errors)
+
+    return (info, fig, summary.to_dict('records'))
 
 
 if __name__ == '__main__':
