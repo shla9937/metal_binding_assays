@@ -163,6 +163,32 @@ The pipeline processes data in the following order:
 6. **Fit Kds** — for each metal, fluorescence at the Apo Tm is extracted across the concentration series and fit to the chosen binding model
 7. **Plot & save** — all figures and CSVs are written to the current directory
 
+### All arguments
+
+| Flag | Long form | Description |
+|-----|---|---|
+| `-c` | `--csv` | One or more Applied Bio DA2 CSV files. Multiple files are averaged. |
+| `-p` | `--protein`  | Protein name (used in titles and output filenames). |
+| `-ms` | `--metal_set` | `29` (default) or `6` — selects the plate metal assignment map. |
+| `-lt` | `--low_temp` | Exclude temperatures **below** this value (°C). |
+| `-ht` | `--high_temp` | Exclude temperatures **above** this value (°C). |
+| `-o` | `--override` | Use this temperature (°C) as the analysis point instead of the Apo Tm. |
+| `-m` | `--model` | Binding model: `hill` (default), `two-site`, or `quadratic`. |
+| `-w` | `--exclude_wells` | Space-separated well positions to drop (e.g. `-w A1 B3`). |
+
+### Basic usage
+
+```bash
+# 29-metal screen, single replicate
+dsf_analysis.py -c run1.csv -p MyProtein -ms 29
+
+# 29-metal screen, three replicates averaged together
+dsf_analysis.py -c rep1.csv rep2.csv rep3.csv -p MyProtein -ms 29
+
+# 6-metal quadruplicate screen, trim temperature range
+dsf_analysis.py -c screen.csv -p MyProtein -ms 6 -lt 60 -ht 95
+```
+
 ### Iterative temperature trimming workflow
 
 **In almost all cases, run the script twice:**
@@ -179,31 +205,6 @@ dsf_analysis.py -c *.csv -p MyProtein -ms 29 -lt 45 -ht 95
 ```
 Set `-lt` just below where the melt begins and `-ht` just above where it ends. Re-inspect the smoothed fluorescence PDF to confirm the sigmoid is well-resolved and normalization looks clean before trusting the Kd fits.
 
-### Basic usage
-
-```bash
-# 29-metal screen, single replicate
-dsf_analysis.py -c run1.csv -p MyProtein -ms 29
-
-# 29-metal screen, three replicates averaged together
-dsf_analysis.py -c rep1.csv rep2.csv rep3.csv -p MyProtein -ms 29
-
-# 6-metal quadruplicate screen, trim temperature range
-dsf_analysis.py -c screen.csv -p MyProtein -ms 6 -lt 60 -ht 95
-```
-
-### All arguments
-
-| Flag | Long form | Description |
-|-----|---|---|
-| `-c` | `--csv` | One or more Applied Bio DA2 CSV files. Multiple files are averaged. |
-| `-p` | `--protein`  | Protein name (used in titles and output filenames). |
-| `-ms` | `--metal_set` | `29` (default) or `6` — selects the plate metal assignment map. |
-| `-lt` | `--low_temp` | Exclude temperatures **below** this value (°C). |
-| `-ht` | `--high_temp` | Exclude temperatures **above** this value (°C). |
-| `-o` | `--override` | Use this temperature (°C) as the analysis point instead of the Apo Tm. |
-| `-m` | `--model` | Binding model: `hill` (default), `two-site`, or `quadratic`. |
-| `-w` | `--exclude_wells` | Space-separated well positions to drop (e.g. `-w A1 B3`). |
 
 ### Binding models
 
