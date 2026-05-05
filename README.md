@@ -67,7 +67,7 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 
 **Purpose:** Detailed titration of 6 metals + EDTA + Apo in quadruplicate on a single 384-well plate.
 
-**When to use:** Follow-up screen after identifying binders from the 29-metal screen, or when you need more replicates and tighter error bars for a smaller metal panel.
+**When to use:** Used to bechmark original method, could be used if you only care about a smaller set of ligands.
 
 > **Key difference from the 30-metal script:** Metal stocks are pipetted **directly into the Greiner 96-well staging plate by hand** (one metal per column, rows A–H). There are no Falcon tubes and no robot pre-dilution step. The robot reads directly from the staging plate wells.
 
