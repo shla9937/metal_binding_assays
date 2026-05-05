@@ -8,7 +8,7 @@ A pipeline for running and analyzing differential scanning fluorimetry (DSF) met
 
 1. [Opentrons protocols](#opentrons-protocols)
    - [`ot2_dsf_30_metals_triplicate.py`](#ot2_dsf_30_metals_triplicatepy)
-   - [`ot2_dsf_8_metals_quadruplicate.py`](#ot2_dsf_8_metals_quadruplicatepy)
+   - [`ot2_dsf_6_metals_quadruplicate.py`](#ot2_dsf_6_metals_quadruplicatepy)
    - [`ot2_dsf_384well_cleaning.py`](#ot2_dsf_384well_cleaningpy)
 2. [Python environment setup](#python-environment-setup)
 3. [Running the analysis](#running-the-analysis)
@@ -28,7 +28,7 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 
 **Purpose:** Screen up to 32 metals (configured for 29) against a single protein in triplicate across 3 × 384-well plates in a single robot run.
 
-> **Key difference from the 8-metal script:** Metal stocks are prepared in **Falcon 15 mL tubes** and loaded into two tube racks on the deck. The robot uses the p300 single to pre-dilute metals into a 96-well staging plate before the p20 multi performs the titration.
+> **Key difference from the 6-metal script:** Metal stocks are prepared in **Falcon 15 mL tubes** and loaded into two tube racks on the deck. The robot uses the p300 single to pre-dilute metals into a 96-well staging plate before the p20 multi performs the titration.
 
 **Deck layout:**
 
@@ -37,7 +37,7 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 | 1–3 | Applied Biosystems MicroAmp 384-well qPCR plates |
 | 4 | Greiner 96-well plate (metal dilution staging) |
 | 5 | 300 µL tip rack |
-| 6 | NEST 12-well reservoir (buffer + per-plate buffer wells) |
+| 6 | NEST 12-well reservoir (buff) |
 | 7 | Opentrons 15-tube rack — Falcon 15 mL (metals 1–15) |
 | 8 | Opentrons 15-tube rack — Falcon 15 mL (metals 16–29 + EDTA) |
 | 10–11 | 20 µL tip racks |
@@ -48,24 +48,24 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 
 | Reagent | Stock concentration | Final concentration | Volume needed |
 |---|---|---|---|
-| Metal chlorides | 5× (5 mM or 500 µM) | 1 mM or 100 µM | ~500 µL into Falcon |
-| EDTA | 5× (500 mM or 500 µM) | 100 mM or 100 µM | ~500 µL into last Falcon |
-| Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | 6 mL total → 250 µL into last 3 columns of staging plate |
-| Buffer | ~100 mM buffer, 150 mM NaCl | — | ~10 mL in trough well 1; ~3 mL each in wells 2–4 |
+| Metal chlorides | 5x (500 µM) | 100 µM | >500 µL into Falcon |
+| EDTA | 5× (500 µM) | 100 µM | >500 µL into last Falcon |
+| Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | 6 mL total → 250 µL/well into last 3 columns of staging plate |
+| Buff | 1x (100 mM buff, 150 mM NaCl, pH 6 or lower) | 1x | 10 mL in trough well 1; 5 mL each in wells 2–4 |
 
 **Dilution series:** 12-point 1:2 dilution — 100 µM → 48.8 nM (using `dilution_factor = 1`)
 
 **Run sequence per plate:**
 1. Dilutes metals from Falcons into 96-well staging plate
-2. Adds buffer + protein/Sypro mix to all wells
+2. Adds buff + protein/Sypro mix to all wells
 3. Adds metal stock to column 1 (or 13) and performs serial dilution across 12 columns
 4. Pauses and prompts operator to transfer plate to qPCR reader before starting the next replicate
 
 ---
 
-### `ot2_dsf_8_metals_quadruplicate.py`
+### `ot2_dsf_6_metals_quadruplicate.py`
 
-**Purpose:** Detailed titration of up to 8 metals (typically 6 metals + EDTA + Apo) in quadruplicate on a single 384-well plate.
+**Purpose:** Detailed titration of 6 metals + EDTA + Apo in quadruplicate on a single 384-well plate.
 
 **When to use:** Follow-up screen after identifying binders from the 29-metal screen, or when you need more replicates and tighter error bars for a smaller metal panel.
 
@@ -78,7 +78,7 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 | 2 | 20 µL tip rack |
 | 4 | Greiner 96-well plate (metal stocks loaded manually — one metal per column, protein/Sypro in column 12) |
 | 5 | Corning 384-well flat-bottom plate |
-| 6 | NEST 12-well reservoir (1× buffer in well 1) |
+| 6 | NEST 12-well reservoir (1× buff in well 1) |
 
 **Pipettes:** p20 multi only (right)
 
@@ -89,14 +89,14 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 | Reagent | Stock concentration | Final concentration | Volume needed |
 |---|---|---|---|
 | Each metal chloride | 5× (500 µM) | 100 µM | ~50 µL into staging well (one column per metal) |
-| EDTA | 5× (500 µM) | 100 µM | ~50 µL into staging well |
-| Buffer (Apo) | 1× | — | ~50 µL into staging well |
+| EDTA | 5× (500 µM) | 100 µM | ~50 µL into staging well G1 |
+| Buff | 1× | 1x | ~50 µL into staging well H1 and 10 ml in to trough|
 | Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | ~2 mL → 250 µL into column 12 of staging plate |
-| Buffer (trough) | 1× — 100 mM Good's buffer, 150 mM NaCl, pH ≤ 6 | — | ~10 mL in trough well 1 |
+| Buff | 1× — 100 mM Good's buff, 150 mM NaCl, pH ≤ 6 | — | ~10 mL in trough well 1 |
 
 **Dilution series:** 12-point 1:2 dilution — 100 µM → 48.8 nM (`dilution_factor = 1`)
 
-**Layout:** All 16 rows of the 384-well plate are used, with 4 replicates of the same 8-metal panel (left half = metals 1–4 × 4 row-pairs; right half = metals 5–8 × 4 row-pairs). Analyze with `-ms 6`.
+**Layout:** All 16 rows of the 384-well plate are used, with 4 replicates of the same 6-metal + EDTA + Apo panel (left half = metals 1–4 × 4 row-pairs; right half = metals 5–8 × 4 row-pairs). Analyze with `-ms 6`.
 
 ---
 
@@ -266,5 +266,5 @@ Mn²⁺, Co²⁺, Ni²⁺, Cu²⁺, Nd³⁺, Dy³⁺, EDTA, Apo  (× 2 rows each
 
 ### Apo and EDTA controls
 
-- **Apo** — buffer-only wells; sets the reference Tm used for all Kd calculations
+- **Apo** — buff-only wells; sets the reference Tm used for all Kd calculations
 - **EDTA** — chelator control; expected to destabilize metal-loaded protein or show no shift for apo protein

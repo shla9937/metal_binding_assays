@@ -9,7 +9,7 @@ import subprocess
 
 
 metadata = {
-    'protocolName': 'DSF - 384 well, 8 row quadruplicate',
+    'protocolName': 'DSF - 384 well, 6 metal quadruplicate',
     'author': 'Shawn Laursen',
     'description': '''
     Adds buff + spyro + protein
@@ -18,11 +18,11 @@ metadata = {
     * can do 6 metals, EDTA and then a buffer (aka Apo protein)
     Stocks:
     -   Metal: 5x (500µM) -> 100µM final (50µL into wells)
-    -   EDTA: 5x (500µM) -> 100µM final (50µL into wells)
-    -   Buff 1x 
+    -   EDTA: 5x (500µM) -> 100µM final (50µL into well G1)
+    -   Buff 1x  (50µL into well H1 and 10mL in well 1 of trough)
     -   Protein + SYPRO + ROX: 5x (25µM, 50x, 250nM) -> 5µM, 10x, 50nM final (2mL total -> 250µL into wells of col 12 of 96 well plate)
 
-    Buff should be 100mM buff, 150mM NaCl, pH 6 or lower of a Good's buff (10mL in trough)''',
+    Buff should be 100mM buff, 150mM NaCl, pH 6 or lower of a Good's buff''',
     'apiLevel': '2.26'}
 
 def run(protocol):

@@ -18,8 +18,8 @@ metadata = {
     For 1:1 dilution - (100µM, 50.0µM, 25.0µM, 12.5µM, 6.25µM, 3.13µM, 1.56µM, 781nM, 391nM, 195nM, 97.7nM, 48.8nM)
 
     Stocks:
-    -   metal: 5x (5mM/500µM) -> 1mM/100µM final (into 15mL Falcons)
-    -   EDTA: 5x (500mM/500µM) -> 100mM/100µM final (into last 15mL Falcon)
+    -   metal: 5x (500µM) -> 100µM final (into 15mL Falcons)
+    -   EDTA: 5x (500µM) -> 100µM final (into last 15mL Falcon)
     -   Apo: buff (need ~10mL in wells 1-4  of trough)
     -   protein + sypro + rox: 5x (25µM, 50x, 250nM) -> 5µM, 10x, 50nM final (6mL total -> 250µL into last 3 columns of 96well)
 
