@@ -7,6 +7,16 @@ import numpy as np
 import matplotlib
 matplotlib.rcParams['pdf.fonttype'] = 42  # Embed fonts as vectors
 matplotlib.rcParams['pdf.use14corefonts'] = False
+matplotlib.rcParams['savefig.transparent'] = True
+matplotlib.rcParams['font.family'] = 'sans-serif'
+matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
+matplotlib.rcParams['font.size'] = 8        # default for all text
+matplotlib.rcParams['axes.titlesize'] = 8
+matplotlib.rcParams['axes.labelsize'] = 8
+matplotlib.rcParams['xtick.labelsize'] = 7
+matplotlib.rcParams['ytick.labelsize'] = 7
+matplotlib.rcParams['legend.fontsize'] = 7
+matplotlib.rcParams['figure.titlesize'] = 8
 import matplotlib.pyplot as plt
 import argparse
 from scipy.signal import find_peaks, savgol_filter
@@ -61,14 +71,19 @@ def analyze(avg_tm_df, args):
 def plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args):
     snr_per_plate = [calc_snr(df) for df in raw_dfs]
     snr_df = pd.concat(snr_per_plate).groupby('Well Position')['SNR'].mean().reset_index()
-    all_snr = pd.concat(snr_per_plate)['SNR'].dropna()
-    global_snr_str = (f"SNR — median={all_snr.median():.1f}, "f"mean={all_snr.mean():.1f}, "f"min={all_snr.min():.1f}, max={all_snr.max():.1f}")
-    for raw_df, csv_file in zip(raw_dfs, args.csv):
-        csv_label = os.path.splitext(os.path.basename(csv_file))[0]
-        plate_snr = snr_per_plate[args.csv.index(csv_file)]['SNR'].dropna()
-        plate_snr_str = (f"SNR [{csv_label}] — "f"median={plate_snr.median():.1f}, mean={plate_snr.mean():.1f}, "f"min={plate_snr.min():.1f}, max={plate_snr.max():.1f}")
-        snr_title = plate_snr_str if len(raw_dfs) == 1 else f"{plate_snr_str}   |   {global_snr_str}"
-        plot_df(raw_df, 'Fluorescence', f"{args.protein} ({csv_label})", snr_df=snr_df, snr_title=snr_title)
+
+    def apo_snr(raw_df, snr_plate_df):
+        apo_wells = raw_df[raw_df['Metal'] == 'Apo']['Well Position'].unique()
+        return snr_plate_df[snr_plate_df['Well Position'].isin(apo_wells)]['SNR'].dropna()
+
+    all_apo_snr = pd.concat([apo_snr(raw_dfs[i], snr_per_plate[i]) for i in range(len(raw_dfs))])
+    global_snr_str = f"apo SNR median={all_apo_snr.median():.1f}"
+    raw_ylim = (pd.concat(raw_dfs)['Fluorescence'].min(), pd.concat(raw_dfs)['Fluorescence'].max())
+    for i, raw_df in enumerate(raw_dfs):
+        plate_apo_snr = apo_snr(raw_df, snr_per_plate[i])
+        plate_snr_str = f"apo SNR median={plate_apo_snr.median():.1f}"
+        rep_label = f"{args.protein} (rep {i+1})" if len(raw_dfs) > 1 else args.protein
+        plot_df(raw_df, 'Fluorescence', rep_label, snr_df=snr_df, snr_title=plate_snr_str, ylim=raw_ylim)
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein,error_column='Standard Error', override=args.override, snr_df=snr_df, snr_title=global_snr_str, kd_results=kd_results)
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
@@ -92,7 +107,7 @@ def metal_setup(metal_set):
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488] 
     protein_conc = 5  # µM      
     tm_threshold = 1.0
-    r2_threshold = 0.8
+    r2_threshold = 0.7
     signal_threshold = 0.15
     return True
 
@@ -213,14 +228,15 @@ def get_atomic_number(metal_name):
     element = ''.join(c for c in metal_name if c.isalpha())
     return atomic_numbers.get(element, 999)
 
-def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df=None, snr_title=None, kd_results=None):    
+def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df=None, snr_title=None, kd_results=None, ylim=None):    
     # If error_column provided, use averaged data mode
     if error_column:
         unique_metals = sorted(df['Metal'].unique(), key=get_atomic_number)
         n_metals = len(unique_metals)
         n_cols = 4
         n_rows = (n_metals + n_cols - 1) // n_cols
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4 * n_rows))
+        fig_h = max(2.0, min(6.0, n_rows * 1.8))
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(6.9, fig_h))
         axes = axes.flatten()
         
         for idx, metal in enumerate(unique_metals):
@@ -247,9 +263,11 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
                 plot_temp = apo_tm
                 temp_label = f'Apo Tm ({apo_tm:.1f}°C)'
             
-            ax.axvline(x=plot_temp, color='black', linestyle='--', linewidth=1.5, alpha=0.8, label=temp_label)
-            ax.set_xlabel('Temperature (°C)', fontsize=10)
-            ax.set_ylabel(y_column, fontsize=10)
+            ax.axvline(x=plot_temp, color='black', linestyle='--', linewidth=1.0, alpha=0.8)
+            ax.set_xlabel('Temperature (°C)', fontsize=6)
+            if idx % n_cols == 0:
+                ax.set_ylabel(y_column, fontsize=6)
+            ax.tick_params(labelsize=5)
             # Add binding SNR to subplot title if kd_results provided
             if kd_results is not None:
                 temp_key = 'Override' if override else 'Apo'
@@ -257,71 +275,68 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
                 if not kd_row.empty and 'Binding_SNR' in kd_row.columns:
                     bsnr = kd_row['Binding_SNR'].values[0]
                     bsnr_str = f'{bsnr:.1f}' if not np.isnan(bsnr) else 'N/A'
-                    ax.set_title(f"{metal}  (binding SNR={bsnr_str})", fontsize=10)
+                    ax.set_title(f"{metal}  (SNR={bsnr_str})", fontsize=7)
                 else:
-                    ax.set_title(f"{metal}", fontsize=11)
+                    ax.set_title(f"{metal}", fontsize=7)
             else:
-                ax.set_title(f"{metal}", fontsize=11)
-            ax.legend(fontsize=7)
+                ax.set_title(f"{metal}", fontsize=7)
             ax.grid(True, alpha=0.3)
 
         for idx in range(n_metals, len(axes)):
             axes[idx].axis('off')
-        suptitle = protein_name
-        if snr_title:
-            suptitle += f'\n{snr_title}'
-        fig.suptitle(suptitle, fontsize=12, y=0.995)
+        suptitle = f'{protein_name}  |  {snr_title}' if snr_title else protein_name
+        fig.suptitle(suptitle, fontsize=8, y=0.998)
     else:
-        fig, axes = plt.subplots(8, 4, figsize=(16, 16))
-        axes = axes.flatten()
-        plot_idx = 0
-        
+        # Build panel list: one per (row, half-plate), sorted by metal atomic number, Apo/EDTA last
+        special_metals = {'Apo', 'EDTA'}
+        panel_list = []
         for row in rows:
-            for well_range, metal_list, label_suffix in [
-                (range(1, 13), metals_left, "Wells 1-12"),
-                (range(13, 25), metals_right, "Wells 13-24")]:
-                ax = axes[plot_idx]
+            for well_range, metal_list in [(range(1, 13), metals_left), (range(13, 25), metals_right)]:
                 metal = metal_list[rows.index(row)]
-                well_positions = [row + str(w) for w in well_range]
-                well_data_subset = df[df['Well Position'].isin(well_positions)]
-                concentrations = sorted(well_data_subset['Concentration'].unique())
-                
-                for well in well_range:
-                    well_pos = row + str(well)
-                    well_data = df[df['Well Position'] == well_pos].sort_values('Temperature')
-                    if len(well_data) == 0:
-                        continue
-                    
-                    conc = well_data['Concentration'].iloc[0]
-                    conc_idx = concentrations.index(conc) if conc in concentrations else 0
-                    color = matplotlib.colors.to_rgba(metal_colors[metal])
-                    color = tuple(c * (1 - conc_idx / max(len(concentrations)-1, 1)) for c in color[:3]) + (color[3],)
-                    ax.plot(well_data['Temperature'], well_data[y_column], label=f"{well_pos} ({conc:.3g} µM)", alpha=0.8, color=color)
-                
-                ax.set_xlabel('Temperature (°C)', fontsize=10)
-                ax.set_ylabel(y_column, fontsize=10)
-                # Add per-subplot SNR stats if provided
-                if snr_df is not None:
-                    well_snrs = snr_df[snr_df['Well Position'].isin(well_positions)]['SNR'].dropna()
-                    if len(well_snrs) > 0:
-                        snr_title = (f"Row {row} - {metal}\n"f"SNR: med={well_snrs.median():.0f},"f"min={well_snrs.min():.0f},max={well_snrs.max():.0f}")
-                    else:
-                        snr_title = f"Row {row} - {metal}"
-                else:
-                    snr_title = f"Row {row} - {metal} ({label_suffix})"
-                ax.set_title(snr_title, fontsize=8)
-                ax.grid(True, alpha=0.3)
-                plot_idx += 1
-        
-        suptitle = protein_name
-        if snr_title:
-            suptitle += f'\n{snr_title}'
-        fig.suptitle(suptitle, fontsize=14, y=0.995)
+                panel_list.append((metal, row, well_range))
+        panel_list.sort(key=lambda x: (x[0] in special_metals, get_atomic_number(x[0]), x[1], x[2].start))
+
+        n_cols = 5
+        n_panels = len(panel_list)
+        n_rows_grid = (n_panels + n_cols - 1) // n_cols
+        fig_h = max(2.0, min(6.0, n_rows_grid * 1.4))
+        fig, axes = plt.subplots(n_rows_grid, n_cols, figsize=(6.9, fig_h))
+        axes = axes.flatten()
+
+        for i in range(n_panels, len(axes)):
+            axes[i].axis('off')
+
+        for plot_idx, (metal, row, well_range) in enumerate(panel_list):
+            ax = axes[plot_idx]
+            well_positions = [row + str(w) for w in well_range]
+            well_data_subset = df[df['Well Position'].isin(well_positions)]
+            concentrations_in_panel = sorted(well_data_subset['Concentration'].unique())
+
+            for well in well_range:
+                well_pos = row + str(well)
+                well_data = df[df['Well Position'] == well_pos].sort_values('Temperature')
+                if len(well_data) == 0:
+                    continue
+                conc = well_data['Concentration'].iloc[0]
+                conc_idx = concentrations_in_panel.index(conc) if conc in concentrations_in_panel else 0
+                color = matplotlib.colors.to_rgba(metal_colors[metal])
+                color = tuple(c * (1 - conc_idx / max(len(concentrations_in_panel) - 1, 1)) for c in color[:3]) + (color[3],)
+                ax.plot(well_data['Temperature'], well_data[y_column], alpha=0.8, color=color)
+
+            ax.tick_params(labelsize=5)
+            ax.set_title(f"{metal} - {row}", fontsize=6)
+            ax.grid(True, alpha=0.3)
+
+        fig.supxlabel('Temperature (°C)', fontsize=7)
+        fig.supylabel(y_column, fontsize=7)
+        suptitle = f'{protein_name}  |  {snr_title}' if snr_title else protein_name
+        fig.suptitle(suptitle, fontsize=8, y=0.998)
     
-    plt.tight_layout()
-    protein_lower = protein_name.lower()
-    plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf", bbox_inches='tight', backend='pdf')
-    plt.savefig(f"{protein_lower}_{y_column.lower().replace(' ', '_')}_melt_curves.png", bbox_inches='tight', dpi=300)
+    plt.tight_layout(pad=0.4, h_pad=0.6, w_pad=0.4)
+    if not error_column:
+        plt.subplots_adjust(left=0.12)
+    file_stem = protein_name.lower().replace(' ', '_').replace('(', '').replace(')', '')
+    plt.savefig(f"{file_stem}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf", bbox_inches='tight', backend='pdf')
     plt.show()
 
 def smooth_wells(df):
@@ -384,7 +399,7 @@ def find_tms(df):
     return df
 
 def plot_tms(df, protein_name):
-    fig, ax = plt.subplots(figsize=(4, 5))
+    fig, ax = plt.subplots(figsize=(3.3, 3.3))
     tm_data = df.groupby(['Metal', 'Concentration'])['Tm'].first().reset_index()
     
     for metal in sorted(tm_data['Metal'].unique(), key=get_atomic_number):
@@ -407,7 +422,6 @@ def plot_tms(df, protein_name):
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_tm_vs_concentration.pdf', bbox_inches='tight', backend='pdf')
-    plt.savefig(f'{protein_lower}_tm_vs_concentration.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def binding_curve_hill(conc, kd, ymin, ymax, n):
@@ -604,7 +618,7 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
         plot_configs.append(('Override Tm', 'Override Temperature', 'Override'))
     
     n_plots = len(plot_configs)
-    fig, axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
+    fig, axes = plt.subplots(1, n_plots, figsize=(5.0 * n_plots, 3.3))
     if n_plots == 1:
         axes = [axes]
 
@@ -649,7 +663,6 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_metal_titrations.pdf', bbox_inches='tight', backend='pdf')
-    plt.savefig(f'{protein_lower}_metal_titrations.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def plot_kd_bars(df, kd_results, protein_name, model):
@@ -664,17 +677,27 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     kd_results_filtered = kd_results[kd_results['Temperature'] == temp_key].copy()
     all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Apo']]
     all_metals = sorted(all_metals, key=get_atomic_number)
-    fig, ax = plt.subplots(figsize=(6, 3))
+    fig, ax = plt.subplots(figsize=(6.9, 2.5))
     x_positions = np.arange(len(all_metals))
     bar_width = 0.6
     
     if model == 'two-site':
         bar_width = 0.4
     
-    # On a log y-axis, bars default to bottom=0 which maps to -infinity in the PDF
-    # geometry, making objects huge when opened in Illustrator. Using a finite bottom
-    # value just below the visible axis floor prevents this.
-    bar_bottom = 5e-5  # half-decade below the ylim floor of 1e-4
+    # Auto-scale ylim from actual Kd values so whitespace is minimised
+    _inv_kds = []
+    for _, _r in kd_results_filtered.iterrows():
+        for _col in (['Kd'] if model in ('hill', 'quadratic') else ['Kd1', 'Kd2']):
+            _k = _r.get(_col, np.nan)
+            if not np.isnan(_k) and _k > 0:
+                _inv_kds.append(1 / _k)
+    if _inv_kds:
+        ylim_top = 10 ** (np.ceil(np.log10(max(_inv_kds))) + 1)
+        ylim_bot = 10 ** (np.floor(np.log10(min(_inv_kds))) - 1)
+    else:
+        ylim_top, ylim_bot = 1e4, 1e-5
+    bar_bottom = ylim_bot * 0.5
+    nb_floor = ylim_bot * 10  # NB bars sit one decade above the axis floor
     
     for metal_idx, metal in enumerate(all_metals):
         metal_data = kd_results_filtered[kd_results_filtered['Metal'] == metal]
@@ -691,8 +714,8 @@ def plot_kd_bars(df, kd_results, protein_name, model):
             
             # Set N.B. (no binding) to 10^-4 if Kd is NA
             if np.isnan(kd):
-                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,alpha=0.5, hatch='//')
-                ax.text(x_pos, 1e-4 * 1.5, 'NB', ha='center', va='bottom',fontsize=6, fontweight='bold', color='black')
+                ax.bar(x_pos, nb_floor - bar_bottom, bar_width, bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1, alpha=0.5, hatch='//')
+                ax.text(x_pos, nb_floor * 1.5, 'NB', ha='center', va='bottom', fontsize=6, fontweight='bold', color='black')
                 continue
             
             inverse_kd = 1 / kd if kd > 0 else 0
@@ -721,10 +744,10 @@ def plot_kd_bars(df, kd_results, protein_name, model):
             kd2_err = metal_data['Kd2_Error'].values[0]
             
             if np.isnan(kd1):
-                ax.bar(x_pos, 1e-4 - bar_bottom, bar_width,
+                ax.bar(x_pos, nb_floor - bar_bottom, bar_width,
                        bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
                        alpha=0.5, hatch='//')
-                ax.text(x_pos, 1e-4 * 1.1, 'NB', ha='center', va='bottom',
+                ax.text(x_pos, nb_floor * 1.5, 'NB', ha='center', va='bottom',
                        fontsize=6, fontweight='bold', color='black')
                 continue
             
@@ -772,7 +795,7 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     
     ax.set_ylabel('Kd (M)', fontsize=10)
     ax.set_yscale('log')
-    ax.set_ylim(10e-5, 1000)
+    ax.set_ylim(ylim_bot, ylim_top)
     ax.set_title(f'{protein_name} - DSF Binding Affinity at {temp_value:.1f}°C', pad=20)
     ax.set_xlim(-0.5, len(all_metals) - 0.5)
     ax.set_xticks(x_positions)
@@ -794,7 +817,6 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     
     plt.tight_layout()
     plt.savefig(f'{protein_name.lower()}_kd_bar_chart.pdf', bbox_inches='tight', backend='pdf')
-    plt.savefig(f'{protein_name.lower()}_kd_bar_chart.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 def calc_snr(df):
