@@ -26,7 +26,7 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 
 ### `ot2_dsf_30_metals_triplicate.py`
 
-**Purpose:** Screen up to 32 metals (configured for 29) against a single protein in triplicate across 3 × 384-well plates in a single robot run.
+**Purpose:** Screen up to 32 metals (configured for 29) against a single protein in triplicate or 3 proteins in singlicate across 3 × 384-well plates in a single robot run.
 
 > **Key difference from the 6-metal script:** Metal stocks are prepared in **Falcon 15 mL tubes** and loaded into two tube racks on the deck. The robot uses the p300 single to pre-dilute metals into a 96-well staging plate before the p20 multi performs the titration.
 
@@ -142,8 +142,6 @@ Key packages installed:
 | scikit-learn | (pip) | Min-Max normalization |
 | dash / plotly | 3.x / 6.x | Specificity web app |
 
-> **Note:** The analysis script (`dsf_analysis.py`) is self-contained and does not require the Opentrons package. The OT-2 scripts run on the robot's built-in Python environment and do **not** use this conda environment.
-
 ---
 
 ## Running the analysis
@@ -166,7 +164,7 @@ dsf_analysis.py -c screen.csv -p MyProtein -ms 6 -lt 60 -ht 95
 ### All arguments
 
 | Flag | Long form | Required | Description |
-|---|---|---|---|
+|-----|---|---|---|
 | `-c` | `--csv` | ✅ | One or more Bio-Rad DA2 CSV files. Multiple files are averaged. |
 | `-p` | `--protein` | ✅ | Protein name (used in titles and output filenames). |
 | `-ms` | `--metal_set` | | `29` (default) or `6` — selects the plate metal assignment map. |
