@@ -163,7 +163,7 @@ The pipeline processes data in the following order:
 6. **Fit Kds** — for each metal, fluorescence at the Apo Tm is extracted across the concentration series and fit to the chosen binding model
 7. **Plot & save** — all figures and CSVs are written to the current directory
 
-### All arguments
+### Arguments
 
 | Flag | Long form | Description |
 |-----|---|---|
