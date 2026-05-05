@@ -1,59 +1,34 @@
-# DSF Metal Specificity Pipeline
+# DSF metal specificity pipeline
 
-A pipeline for running and analyzing Differential Scanning Fluorimetry (DSF) metal-binding screens on a Bio-Rad CFX (via Opentrons OT-2 liquid handling) and extracting Kd values for up to 29 metals simultaneously.
+A pipeline for running and analyzing differential scanning fluorimetry (DSF) metal-binding screens with automated setup on an Opentrons OT-2 liquid handling robot and data acquisition on an Applied Biosystems QuantStudio 7 qPCR. This method is set up to extract Kd values for up to 32 metals simultaneously using 12 well titration series. **It could be adapted for any non-hydrophobic ligand.**
 
 ---
 
-## Table of Contents
+## Table of contents
 
-1. [Environment Setup](#environment-setup)
-2. [Opentrons Protocols](#opentrons-protocols)
-   - [29-Metal Triplicate Screen](#ot2_dsf_30_metals_triplicatepy)
-   - [8-Metal Quadruplicate Screen](#ot2_dsf_8_metals_quadruplicatepy)
-   - [384-Well Plate Cleaning](#ot2_dsf_384well_cleaningpy)
-3. [Running the Analysis](#running-the-analysis)
+1. [Opentrons protocols](#opentrons-protocols)
+   - [`ot2_dsf_30_metals_triplicate.py`](#ot2_dsf_30_metals_triplicatepy)
+   - [`ot2_dsf_8_metals_quadruplicate.py`](#ot2_dsf_8_metals_quadruplicatepy)
+   - [`ot2_dsf_384well_cleaning.py`](#ot2_dsf_384well_cleaningpy)
+2. [Python environment setup](#python-environment-setup)
+3. [Running the analysis](#running-the-analysis)
 4. [Outputs](#outputs)
-5. [Metal Specificity App](#metal-specificity-app)
-6. [Plate Layout & Concentrations](#plate-layout--concentrations)
+5. [Metal specificity app](#metal-specificity-app)
+6. [Plate layout & concentrations](#plate-layout--concentrations)
 
 ---
 
-## Environment Setup
+## Opentrons protocols
 
-Dependencies are managed via conda. The environment file is `metal_env.yml`.
-
-```bash
-conda env create -f metal_env.yml
-conda activate metal
-```
-
-Key packages installed:
-
-| Package | Version | Role |
-|---|---|---|
-| Python | 3.10 | Runtime |
-| numpy | 1.26 | Numerics |
-| pandas | 2.2 | Data wrangling |
-| matplotlib | 3.9 | Figure generation |
-| scipy | (conda-forge) | Curve fitting, signal filtering |
-| scikit-learn | (pip) | Min-Max normalization |
-| dash / plotly | 3.x / 6.x | Specificity web app |
-
-> **Note:** The analysis script (`dsf_analysis.py`) is self-contained and does not require the Opentrons package. The OT-2 scripts run on the robot's built-in Python environment and do **not** use this conda environment.
-
----
-
-## Opentrons Protocols
-
-All three scripts are uploaded to and executed from the **Opentrons App** on the OT-2. They are not run locally.
+To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot. 
 
 ---
 
 ### `ot2_dsf_30_metals_triplicate.py`
 
-**Purpose:** Screen up to 29 metals against a single protein in triplicate across 3 × 384-well plates in a single robot run.
+**Purpose:** Screen up to 32 metals (configured for 29) against a single protein in triplicate across 3 × 384-well plates in a single robot run.
 
-**When to use:** First-pass screen to identify which metals bind your protein and to get triplicate Kd measurements with good statistics.
+> **Key difference from the 8-metal script:** Metal stocks are prepared in **Falcon 15 mL tubes** and loaded into two tube racks on the deck. The robot uses the p300 single to pre-dilute metals into a 96-well staging plate before the p20 multi performs the titration.
 
 **Deck layout:**
 
@@ -64,7 +39,7 @@ All three scripts are uploaded to and executed from the **Opentrons App** on the
 | 5 | 300 µL tip rack |
 | 6 | NEST 12-well reservoir (buffer + per-plate buffer wells) |
 | 7 | Opentrons 15-tube rack — Falcon 15 mL (metals 1–15) |
-| 8 | Opentrons 15-tube rack — Falcon 15 mL (metals 16–29 + extra EDTA) |
+| 8 | Opentrons 15-tube rack — Falcon 15 mL (metals 16–29 + EDTA) |
 | 10–11 | 20 µL tip racks |
 
 **Pipettes:** p20 multi (right), p300 single (left)
@@ -73,7 +48,7 @@ All three scripts are uploaded to and executed from the **Opentrons App** on the
 
 | Reagent | Stock concentration | Final concentration | Volume needed |
 |---|---|---|---|
-| Each metal chloride | 5× (5 mM or 500 µM) | 1 mM or 100 µM | ~500 µL into Falcon |
+| Metal chlorides | 5× (5 mM or 500 µM) | 1 mM or 100 µM | ~500 µL into Falcon |
 | EDTA | 5× (500 mM or 500 µM) | 100 mM or 100 µM | ~500 µL into last Falcon |
 | Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | 6 mL total → 250 µL into last 3 columns of staging plate |
 | Buffer | ~100 mM buffer, 150 mM NaCl | — | ~10 mL in trough well 1; ~3 mL each in wells 2–4 |
@@ -94,14 +69,16 @@ All three scripts are uploaded to and executed from the **Opentrons App** on the
 
 **When to use:** Follow-up screen after identifying binders from the 29-metal screen, or when you need more replicates and tighter error bars for a smaller metal panel.
 
+> **Key difference from the 30-metal script:** Metal stocks are pipetted **directly into the Greiner 96-well staging plate by hand** (one metal per column, rows A–H). There are no Falcon tubes and no robot pre-dilution step. The robot reads directly from the staging plate wells.
+
 **Deck layout:**
 
 | Slot | Labware |
 |---|---|
 | 2 | 20 µL tip rack |
-| 4 | Greiner 96-well plate (metal stocks — one metal per column) |
+| 4 | Greiner 96-well plate (metal stocks loaded manually — one metal per column, protein/Sypro in column 12) |
 | 5 | Corning 384-well flat-bottom plate |
-| 6 | NEST 12-well reservoir (buffer in well 1) |
+| 6 | NEST 12-well reservoir (1× buffer in well 1) |
 
 **Pipettes:** p20 multi only (right)
 
@@ -111,10 +88,13 @@ All three scripts are uploaded to and executed from the **Opentrons App** on the
 
 | Reagent | Stock concentration | Final concentration | Volume needed |
 |---|---|---|---|
-| Each metal | 5× (5 mM or 500 µM) | 1 mM or 100 µM | ~50 µL into staging well |
-| EDTA | 5× | same as metals | ~50 µL |
-| Buffer (Apo) | 5× or neat | — | ~50 µL |
-| Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | ~2 mL → 250 µL into well H12 of staging plate |
+| Each metal chloride | 5× (500 µM) | 100 µM | ~50 µL into staging well (one column per metal) |
+| EDTA | 5× (500 µM) | 100 µM | ~50 µL into staging well |
+| Buffer (Apo) | 1× | — | ~50 µL into staging well |
+| Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | ~2 mL → 250 µL into column 12 of staging plate |
+| Buffer (trough) | 1× — 100 mM Good's buffer, 150 mM NaCl, pH ≤ 6 | — | ~10 mL in trough well 1 |
+
+**Dilution series:** 12-point 1:2 dilution — 100 µM → 48.8 nM (`dilution_factor = 1`)
 
 **Layout:** All 16 rows of the 384-well plate are used, with 4 replicates of the same 8-metal panel (left half = metals 1–4 × 4 row-pairs; right half = metals 5–8 × 4 row-pairs). Analyze with `-ms 6`.
 
@@ -143,7 +123,32 @@ All three scripts are uploaded to and executed from the **Opentrons App** on the
 
 ---
 
-## Running the Analysis
+## Python environment setup
+
+Dependencies are managed via conda. The environment file is `metal_env.yml`.
+
+```bash
+conda env create -f metal_env.yml
+conda activate metal
+```
+
+Key packages installed:
+
+| Package | Version | Role |
+|---|---|---|
+| Python | 3.10 | Runtime |
+| numpy | 1.26 | Numerics |
+| pandas | 2.2 | Data wrangling |
+| matplotlib | 3.9 | Figure generation |
+| scipy | (conda-forge) | Curve fitting, signal filtering |
+| scikit-learn | (pip) | Min-Max normalization |
+| dash / plotly | 3.x / 6.x | Specificity web app |
+
+> **Note:** The analysis script (`dsf_analysis.py`) is self-contained and does not require the Opentrons package. The OT-2 scripts run on the robot's built-in Python environment and do **not** use this conda environment.
+
+---
+
+## Running the analysis
 
 The analysis script reads Bio-Rad DA2 exported CSV files and produces Kd fits and publication-quality figures.
 
@@ -210,7 +215,7 @@ All figures are saved as PDF with embedded vector fonts (DejaVu Sans) and transp
 
 ---
 
-## Metal Specificity App
+## Metal specificity app
 
 `metal_specificity_app.py` is a local Dash web app for comparing Kd values across multiple proteins side by side.
 
@@ -236,7 +241,7 @@ Upload one or more `*_kd_results.csv` files (output from `dsf_analysis.py`). The
 
 ---
 
-## Plate Layout & Concentrations
+## Plate layout & concentrations
 
 ### 29-metal layout (columns 1–24, rows A–P)
 

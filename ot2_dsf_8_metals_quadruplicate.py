@@ -14,23 +14,22 @@ metadata = {
     'description': '''
     Adds buff + spyro + protein
     Titrates 8 metals in 12 point dilution series. 
-    For 1:2 dultion - (1mM, 333µM, 111µM, 37µM, 12.3µM, 4.1µM, 1.37µM, 457nM, 152nM, 51nM, 17nM, 6nM)
     For 1:1 dilution - (100µM, 50.0µM, 25.0µM, 12.5µM, 6.25µM, 3.13µM, 1.56µM, 781nM, 391nM, 195nM, 97.7nM, 48.8nM)
     * can do 6 metals, EDTA and then a buffer (aka Apo protein)
     Stocks:
-    -   metal: 5x (5mM or 500µM) -> 1mM or 100µM final (50µL into wells)
-    -   EDTA: 5x (5mM or 500µM) -> 1mM or 100µM final (50µL into wells)
-    -   Buff: 5x -> won't change dilution
-    -   protein + sypro + rox: 5x (25µM, 50x, 250nM) -> 5µM, 10x, 50nM final (2mL total -> 250µL into wells)
+    -   Metal: 5x (500µM) -> 100µM final (50µL into wells)
+    -   EDTA: 5x (500µM) -> 100µM final (50µL into wells)
+    -   Buff 1x 
+    -   Protein + SYPRO + ROX: 5x (25µM, 50x, 250nM) -> 5µM, 10x, 50nM final (2mL total -> 250µL into wells of col 12 of 96 well plate)
 
-    Buff should be ~100mM buff, 150mM NaCl (10mL in trough)''',
+    Buff should be 100mM buff, 150mM NaCl, pH 6 or lower of a Good's buff (10mL in trough)''',
     'apiLevel': '2.26'}
 
 def run(protocol):
     protocol.set_rail_lights(True)
     setup(protocol)
     add_protein_and_sypro(protocol) 
-    add_metal_and_titrate(protocol) # titrate into protein/buff wells, diluted in protein/buff
+    add_metal_and_titrate(protocol)
     protocol.set_rail_lights(False)
 
 def setup(protocol):
