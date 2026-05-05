@@ -165,7 +165,7 @@ dsf_analysis.py -c screen.csv -p MyProtein -ms 6 -lt 60 -ht 95
 
 | Flag | Long form | Description |
 |-----|---|---|
-| `-c` | `--csv` | One or more Bio-Rad DA2 CSV files. Multiple files are averaged. |
+| `-c` | `--csv` | One or more Applied Bio DA2 CSV files. Multiple files are averaged. |
 | `-p` | `--protein`  | Protein name (used in titles and output filenames). |
 | `-ms` | `--metal_set` | `29` (default) or `6` — selects the plate metal assignment map. |
 | `-lt` | `--low_temp` | Exclude temperatures **below** this value (°C). |
