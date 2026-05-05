@@ -10,7 +10,7 @@ matplotlib.rcParams['pdf.use14corefonts'] = False
 import matplotlib.pyplot as plt
 import argparse
 from scipy.signal import find_peaks, savgol_filter
-from scipy.optimize import curve_fit 
+from scipy.optimize import curve_fit
 from sklearn.preprocessing import MinMaxScaler
 from matplotlib.colors import Normalize
 import matplotlib.colors
@@ -69,7 +69,7 @@ def plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args):
         plate_snr_str = (f"SNR [{csv_label}] — "f"median={plate_snr.median():.1f}, mean={plate_snr.mean():.1f}, "f"min={plate_snr.min():.1f}, max={plate_snr.max():.1f}")
         snr_title = plate_snr_str if len(raw_dfs) == 1 else f"{plate_snr_str}   |   {global_snr_str}"
         plot_df(raw_df, 'Fluorescence', f"{args.protein} ({csv_label})", snr_df=snr_df, snr_title=snr_title)
-    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein,error_column='Standard Error', override=args.override, snr_df=snr_df, snr_title=global_snr_str)
+    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein,error_column='Standard Error', override=args.override, snr_df=snr_df, snr_title=global_snr_str, kd_results=kd_results)
     plot_tms(avg_tm_df, args.protein)
     plot_kds(titration_df, kd_results, args.protein, model=args.model)
     plot_kd_bars(titration_df, kd_results, args.protein, model=args.model)
@@ -213,7 +213,7 @@ def get_atomic_number(metal_name):
     element = ''.join(c for c in metal_name if c.isalpha())
     return atomic_numbers.get(element, 999)
 
-def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df=None, snr_title=None):    
+def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df=None, snr_title=None, kd_results=None):    
     # If error_column provided, use averaged data mode
     if error_column:
         unique_metals = sorted(df['Metal'].unique(), key=get_atomic_number)
@@ -250,7 +250,18 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
             ax.axvline(x=plot_temp, color='black', linestyle='--', linewidth=1.5, alpha=0.8, label=temp_label)
             ax.set_xlabel('Temperature (°C)', fontsize=10)
             ax.set_ylabel(y_column, fontsize=10)
-            ax.set_title(f"{metal}", fontsize=11)
+            # Add binding SNR to subplot title if kd_results provided
+            if kd_results is not None:
+                temp_key = 'Override' if override else 'Apo'
+                kd_row = kd_results[(kd_results['Metal'] == metal) & (kd_results['Temperature'] == temp_key)]
+                if not kd_row.empty and 'Binding_SNR' in kd_row.columns:
+                    bsnr = kd_row['Binding_SNR'].values[0]
+                    bsnr_str = f'{bsnr:.1f}' if not np.isnan(bsnr) else 'N/A'
+                    ax.set_title(f"{metal}  (binding SNR={bsnr_str})", fontsize=10)
+                else:
+                    ax.set_title(f"{metal}", fontsize=11)
+            else:
+                ax.set_title(f"{metal}", fontsize=11)
             ax.legend(fontsize=7)
             ax.grid(True, alpha=0.3)
 
@@ -545,6 +556,8 @@ def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
             vals = 1 - metal_data[val_col].values
             errs = metal_data[f'{val_col} Standard Error'].values
             signal_range = np.max(vals) - np.min(vals)
+            mean_err = np.mean(errs)
+            binding_snr = signal_range / mean_err if mean_err > 0 else np.nan
             fit_result = fit_binding_curve(concs, vals, errs, model=model)
             # Quality control: flat signal and Tm change always apply;
             # R² threshold only applies when the fit converged
@@ -556,6 +569,7 @@ def find_kds(df, override, model, tm_threshold, r2_threshold, signal_threshold):
                 fit_result = null_fit(model, fit_result['R_squared'])
             fit_result['Metal'] = metal
             fit_result['Temperature'] = temp_label
+            fit_result['Binding_SNR'] = binding_snr
             kd_list.append(fit_result)
 
     return kd_df, pd.DataFrame(kd_list)
