@@ -163,16 +163,16 @@ dsf_analysis.py -c screen.csv -p MyProtein -ms 6 -lt 60 -ht 95
 
 ### All arguments
 
-| Flag | Long form | Required | Description |
-|-----|---|---|---|
-| `-c` | `--csv` | ✅ | One or more Bio-Rad DA2 CSV files. Multiple files are averaged. |
-| `-p` | `--protein` | ✅ | Protein name (used in titles and output filenames). |
-| `-ms` | `--metal_set` | | `29` (default) or `6` — selects the plate metal assignment map. |
-| `-lt` | `--low_temp` | | Exclude temperatures **below** this value (°C). |
-| `-ht` | `--high_temp` | | Exclude temperatures **above** this value (°C). |
-| `-o` | `--override` | | Use this temperature (°C) as the analysis point instead of the Apo Tm. |
-| `-m` | `--model` | | Binding model: `hill` (default), `two-site`, or `quadratic`. |
-| `-w` | `--exclude_wells` | | Space-separated well positions to drop (e.g. `-w A1 B3`). |
+| Flag | Long form | Description |
+|-----|---|---|
+| `-c` | `--csv` | One or more Bio-Rad DA2 CSV files. Multiple files are averaged. |
+| `-p` | `--protein`  | Protein name (used in titles and output filenames). |
+| `-ms` | `--metal_set` | `29` (default) or `6` — selects the plate metal assignment map. |
+| `-lt` | `--low_temp` | Exclude temperatures **below** this value (°C). |
+| `-ht` | `--high_temp` | Exclude temperatures **above** this value (°C). |
+| `-o` | `--override` | Use this temperature (°C) as the analysis point instead of the Apo Tm. |
+| `-m` | `--model` | Binding model: `hill` (default), `two-site`, or `quadratic`. |
+| `-w` | `--exclude_wells` | Space-separated well positions to drop (e.g. `-w A1 B3`). |
 
 ### Binding models
 
