@@ -148,6 +148,34 @@ Key packages installed:
 
 The analysis script reads Bio-Rad DA2 exported CSV files and produces Kd fits and publication-quality figures.
 
+### How the analysis works
+
+The pipeline processes data in the following order:
+
+1. **Load & filter** — reads one or more DA2 CSVs; temperature bounds (`-lt`, `-ht`) are applied here
+2. **Smooth** — applies a Savitzky-Golay filter to each well's fluorescence and derivative traces
+3. **Normalize** — Min-Max scales each well's smoothed fluorescence to [0, 1]
+4. **Average** — if multiple CSV files are provided, replicates are averaged and a standard error is computed per (metal, concentration, temperature) point
+5. **Find Tms** — the peak of the averaged derivative trace is taken as Tm for each well
+6. **Fit Kds** — for each metal, fluorescence at the Apo Tm is extracted across the concentration series and fit to the chosen binding model
+7. **Plot & save** — all figures and CSVs are written to the current directory
+
+### Iterative temperature trimming workflow
+
+**In almost all cases, run the script twice:**
+
+**Step 1 — initial run (no temperature limits):**
+```bash
+dsf_analysis.py -c *.csv -p MyProtein -ms 29
+```
+Inspect the raw fluorescence PDF. Identify any pre-melting fluorescence rise at low temperature or post-melt aggregation artefacts at high temperature. These corrupt normalization because Min-Max scaling uses the global min and max of the trace — if a spurious peak or rise is present, the true melting transition will be compressed and Tms will be wrong.
+
+**Step 2 — refined run with trimmed temperature range:**
+```bash
+dsf_analysis.py -c *.csv -p MyProtein -ms 29 -lt 45 -ht 95
+```
+Set `-lt` just below where the melt begins and `-ht` just above where it ends. Re-inspect the smoothed fluorescence PDF to confirm the sigmoid is well-resolved and normalization looks clean before trusting the Kd fits.
+
 ### Basic usage
 
 ```bash
