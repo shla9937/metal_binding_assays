@@ -233,9 +233,9 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
     if error_column:
         unique_metals = sorted(df['Metal'].unique(), key=get_atomic_number)
         n_metals = len(unique_metals)
-        n_cols = 4
+        n_cols = 5
         n_rows = (n_metals + n_cols - 1) // n_cols
-        fig_h = max(2.0, min(6.0, n_rows * 1.8))
+        fig_h = max(2.0, min(6.0, n_rows * 1.4))
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(6.9, fig_h))
         axes = axes.flatten()
         
@@ -264,9 +264,6 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
                 temp_label = f'Apo Tm ({apo_tm:.1f}°C)'
             
             ax.axvline(x=plot_temp, color='black', linestyle='--', linewidth=1.0, alpha=0.8)
-            ax.set_xlabel('Temperature (°C)', fontsize=6)
-            if idx % n_cols == 0:
-                ax.set_ylabel(y_column, fontsize=6)
             ax.tick_params(labelsize=5)
             # Add binding SNR to subplot title if kd_results provided
             if kd_results is not None:
@@ -284,6 +281,8 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
 
         for idx in range(n_metals, len(axes)):
             axes[idx].axis('off')
+        fig.supxlabel('Temperature (°C)', fontsize=7)
+        fig.supylabel(y_column, fontsize=7)
         suptitle = f'{protein_name}  |  {snr_title}' if snr_title else protein_name
         fig.suptitle(suptitle, fontsize=8, y=0.998)
     else:
@@ -333,8 +332,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
         fig.suptitle(suptitle, fontsize=8, y=0.998)
     
     plt.tight_layout(pad=0.4, h_pad=0.6, w_pad=0.4)
-    if not error_column:
-        plt.subplots_adjust(left=0.12)
+    plt.subplots_adjust(left=0.12)
     file_stem = protein_name.lower().replace(' ', '_').replace('(', '').replace(')', '')
     plt.savefig(f"{file_stem}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf", bbox_inches='tight', backend='pdf')
     plt.show()
@@ -700,7 +698,7 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     else:
         ylim_top, ylim_bot = 1e4, 1e-5
     bar_bottom = ylim_bot * 0.5
-    nb_floor = ylim_bot * 10  # NB bars sit one decade above the axis floor
+    nb_label_y = ylim_bot * 1.5  # just inside the visible bottom for the NB text
     
     for metal_idx, metal in enumerate(all_metals):
         metal_data = kd_results_filtered[kd_results_filtered['Metal'] == metal]
@@ -715,10 +713,8 @@ def plot_kd_bars(df, kd_results, protein_name, model):
             kd = metal_data['Kd'].values[0]
             kd_err = metal_data['Kd_Error'].values[0]
             
-            # Set N.B. (no binding) to 10^-4 if Kd is NA
             if np.isnan(kd):
-                ax.bar(x_pos, nb_floor - bar_bottom, bar_width, bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1, alpha=0.5, hatch='//')
-                ax.text(x_pos, nb_floor * 1.5, 'NB', ha='center', va='bottom', fontsize=6, fontweight='bold', color='black')
+                ax.text(x_pos, nb_label_y, 'NB', ha='center', va='bottom', fontsize=6, fontweight='bold', color='black')
                 continue
             
             inverse_kd = 1 / kd if kd > 0 else 0
@@ -745,13 +741,8 @@ def plot_kd_bars(df, kd_results, protein_name, model):
             kd1_err = metal_data['Kd1_Error'].values[0]
             kd2 = metal_data['Kd2'].values[0]
             kd2_err = metal_data['Kd2_Error'].values[0]
-            
             if np.isnan(kd1):
-                ax.bar(x_pos, nb_floor - bar_bottom, bar_width,
-                       bottom=bar_bottom, color=base_color, edgecolor='black', linewidth=1,
-                       alpha=0.5, hatch='//')
-                ax.text(x_pos, nb_floor * 1.5, 'NB', ha='center', va='bottom',
-                       fontsize=6, fontweight='bold', color='black')
+                ax.text(x_pos, nb_label_y, 'NB', ha='center', va='bottom', fontsize=6, fontweight='bold', color='black')
                 continue
             
             inverse_kd1 = 1 / kd1 if kd1 > 0 else 0
