@@ -51,7 +51,9 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 | Metal chlorides | 100x (10 mM) | 100 µM | >500 µL into Falcon |
 | EDTA | 5× (500 µM) | 100 µM | >500 µL into last Falcon |
 | Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | 6 mL total → 250 µL/well into last 3 columns of staging plate |
-| Buff | 1x (100 mM buff, 150 mM NaCl, pH 6 or lower) | 1x | 10 mL in trough well 1; 5 mL each in wells 2–4 |
+| Buff | 1x | 1x | 10 mL in trough well 1; 5 mL each in wells 2–4 |
+
+*Buff should be 100 mM Good's buff (MES or similar), 150 mM NaCl, pH ≤ 6*
 
 **Dilution series:** 12-point 1:2 dilution — 100 µM → 48.8 nM (using `dilution_factor = 1`)
 
@@ -90,7 +92,8 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 | EDTA | 5× (500 µM) | 100 µM | ~50 µL into staging well G1 |
 | Buff | 1× | 1x | ~50 µL into staging well H1 and 10 ml in to trough|
 | Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | ~2 mL → 250 µL into column 12 of staging plate |
-| Buff | 1× — 100 mM Good's buff, 150 mM NaCl, pH ≤ 6 | — | ~10 mL in trough well 1 |
+
+*Buff should be 100 mM Good's buff (MES or similar), 150 mM NaCl, pH ≤ 6*
 
 **Dilution series:** 12-point 1:2 dilution — 100 µM → 48.8 nM (`dilution_factor = 1`)
 
