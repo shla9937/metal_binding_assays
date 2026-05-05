@@ -52,22 +52,11 @@ def setup(protocol):
     dilution_factor = 1 # i.e. 1:2, not 1 in 2
     start_vol = rxn_vol + (rxn_vol/dilution_factor)
 
-def pickup_tips(number, pipette, protocol):
-    nozzle_dict = {2: "G1", 3: "F1", 4: "E1", 5: "D1", 6: "C1", 7: "B1"}
-    if pipette == p20m: 
-        if number == 1:
-            p20m.configure_nozzle_layout(style=SINGLE,start="H1")
-        elif number > 1 and number < 8:
-            p20m.configure_nozzle_layout(style=PARTIAL_COLUMN, start="H1", end=nozzle_dict[number])
-        else:
-            p20m.configure_nozzle_layout(style=ALL)
-        p20m.pick_up_tip(tips20)
-
 def add_protein_and_sypro(protocol):
     rows = [0,1,0,1]
     cols = [0,0,12,12]
     
-    pickup_tips(8, p20m, protocol)
+    p20m.pick_up_tip()
     for row, col in zip(rows, cols):
         p20m.transfer(start_vol*(3/5), buff, plate.rows()[row][col], new_tip='never')
         p20m.transfer(rxn_vol*(4/5), buff, plate.rows()[row][col+1:col+12], new_tip='never')
@@ -81,7 +70,7 @@ def add_metal_and_titrate(protocol):
     cols = [0,0,12,12]
 
     for row, col in zip(rows, cols):
-        pickup_tips(8, p20m, protocol)
+        p20m.pick_up_tip()
         p20m.transfer(start_vol*(1/5), metals.rows()[0][0], plate.rows()[row][col], new_tip='never', 
                 mix_before=(3,rxn_vol))
         p20m.transfer(rxn_vol/dilution_factor, plate.rows()[row][col+0:col+11], plate.rows()[row][col+1:col+12], 

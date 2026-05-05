@@ -48,7 +48,7 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 
 | Reagent | Stock concentration | Final concentration | Volume needed |
 |---|---|---|---|
-| Metal chlorides | 5x (500 µM) | 100 µM | >500 µL into Falcon |
+| Metal chlorides | 100x (10 mM) | 100 µM | >500 µL into Falcon |
 | EDTA | 5× (500 µM) | 100 µM | >500 µL into last Falcon |
 | Protein + Sypro + ROX | 5× (25 µM, 50×, 250 nM) | 5 µM, 10×, 50 nM | 6 mL total → 250 µL/well into last 3 columns of staging plate |
 | Buff | 1x (100 mM buff, 150 mM NaCl, pH 6 or lower) | 1x | 10 mL in trough well 1; 5 mL each in wells 2–4 |
@@ -81,8 +81,6 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 | 6 | NEST 12-well reservoir (1× buff in well 1) |
 
 **Pipettes:** p20 multi only (right)
-
-> Uses partial-column nozzle configuration to pick up only as many tips as rows needed — no wasted tips.
 
 **Stock preparation:**
 
