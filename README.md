@@ -10,11 +10,15 @@ A pipeline for running and analyzing differential scanning fluorimetry (DSF) met
    - [`ot2_dsf_30_metals_triplicate.py`](#ot2_dsf_30_metals_triplicatepy)
    - [`ot2_dsf_6_metals_quadruplicate.py`](#ot2_dsf_6_metals_quadruplicatepy)
    - [`ot2_dsf_384well_cleaning.py`](#ot2_dsf_384well_cleaningpy)
-2. [Python environment setup](#python-environment-setup)
-3. [Running the analysis](#running-the-analysis)
-4. [Outputs](#outputs)
-5. [Metal specificity app](#metal-specificity-app)
-6. [Plate layout & concentrations](#plate-layout--concentrations)
+2. [Analysis](#analysis)
+   - [Python environment setup](#python-environment-setup)
+   - [Logic](#logic)
+   - [Arguments](#arguments)
+   - [Basic usage](#basic-usage)
+   - [QC thresholds (hardcoded)](#qc-thresholds-hardcoded)
+   - [Outputs](#outputs)
+3. [Future development](#future-development)
+<!-- 5. [Metal specificity app](#metal-specificity-app) -->
 
 ---
 
@@ -22,7 +26,7 @@ A pipeline for running and analyzing differential scanning fluorimetry (DSF) met
 
 To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot. 
 
----
+--- 
 
 ### `ot2_dsf_30_metals_triplicate.py`
 
@@ -124,7 +128,13 @@ To be run with the **Opentrons App api level 2.26 or higher** on the OT-2 robot.
 
 ---
 
-## Python environment setup
+## Analysis 
+
+The provided analysis script will automate most of the analysis from this experiment.
+
+---
+
+### Python environment setup
 
 Dependencies are managed via conda. The environment file is `metal_env.yml`.
 
@@ -145,13 +155,11 @@ Key packages installed:
 | scikit-learn | (pip) | Min-Max normalization |
 | dash / plotly | 3.x / 6.x | Specificity web app |
 
----
-
-## Running the analysis
-
 The analysis script reads Bio-Rad DA2 exported CSV files and produces Kd fits and publication-quality figures.
 
-### How the analysis works
+---
+
+### Logic
 
 The pipeline processes data in the following order:
 
@@ -162,6 +170,8 @@ The pipeline processes data in the following order:
 5. **Find Tms** — the peak of the averaged derivative trace is taken as Tm for each well
 6. **Fit Kds** — for each metal, fluorescence at the Apo Tm is extracted across the concentration series and fit to the chosen binding model
 7. **Plot & save** — all figures and CSVs are written to the current directory
+
+---
 
 ### Arguments
 
@@ -176,6 +186,8 @@ The pipeline processes data in the following order:
 | `-m` | `--model` | Binding model: `hill` (default), `two-site`, or `quadratic`. |
 | `-w` | `--exclude_wells` | Space-separated well positions to drop (e.g. `-w A1 B3`). |
 
+---
+
 ### Basic usage
 
 ```bash
@@ -188,8 +200,6 @@ dsf_analysis.py -c rep1.csv rep2.csv rep3.csv -p MyProtein -ms 29
 # 6-metal quadruplicate screen, trim temperature range
 dsf_analysis.py -c screen.csv -p MyProtein -ms 6 -lt 60 -ht 95
 ```
-
-### Iterative temperature trimming workflow
 
 **In almost all cases, run the script twice:**
 
@@ -205,6 +215,7 @@ dsf_analysis.py -c *.csv -p MyProtein -ms 29 -lt 45 -ht 95
 ```
 Set `-lt` just below where the melt begins and `-ht` just above where it ends. Re-inspect the smoothed fluorescence PDF to confirm the sigmoid is well-resolved and normalization looks clean before trusting the Kd fits.
 
+---
 
 ### Binding models
 
@@ -213,6 +224,8 @@ Set `-lt` just below where the melt begins and `-ht` just above where it ends. R
 | `hill` | Standard Hill equation with cooperativity coefficient *n* | Most cases; allows for cooperative binding |
 | `quadratic` | Quadratic binding (Bai et al. 2018); accounts for ligand depletion | When protein and metal concentrations are similar |
 | `two-site` | Two independent sites with Kd1 and Kd2 | When titration curves show biphasic behavior |
+
+---
 
 ### QC thresholds (hardcoded)
 
@@ -224,7 +237,7 @@ Set `-lt` just below where the melt begins and `-ht` just above where it ends. R
 
 ---
 
-## Outputs
+### Outputs
 
 All output files are written to the **current working directory**. Run the script from the experiment folder.
 
@@ -241,7 +254,12 @@ All output files are written to the **current working directory**. Run the scrip
 
 All figures are saved as PDF with embedded vector fonts (DejaVu Sans) and transparent backgrounds, sized for journal submission (max 6.9" wide).
 
----
+## Future development
+
+1. Dash app for quickly assessing selectivity of a panel of protein.
+2. Input for custom ligands and automated concentration calculations.
+
+<!-- ---
 
 ## Metal specificity app
 
@@ -265,34 +283,4 @@ Upload one or more `*_kd_results.csv` files (output from `dsf_analysis.py`). The
 
 - **Heatmap:** Per-protein, column-normalized log₁₀(Kd) grayscale heatmap. Darker = tighter binding.
 - **Specificity row:** Best-binding metal per protein and the fold-selectivity over the second-best metal.
-- **Hover text:** Raw Kd values with auto-scaled units (nM / µM / mM).
-
----
-
-## Plate layout & concentrations
-
-### 29-metal layout (columns 1–24, rows A–P)
-
-```
-Columns  1–12  (left half):   Li, Cu, Mg, Zn, K, Rb, Ca, Sr, Sc, Y, Mn, Cs, Co, Ba, Ni, La
-Columns 13–24  (right half):  Ce, Ho, Pr, Er, Nd, Tm, Sm, Yb, Eu, Lu, Gd, EDTA, Tb, EDTA, Dy, Apo
-```
-
-Each row titrates its assigned metal across 12 wells in a 1:2 dilution series:
-
-```
-100 µM → 50 → 25 → 12.5 → 6.25 → 3.13 → 1.56 → 0.781 → 0.391 → 0.195 → 0.0977 → 0.0488 µM
-```
-
-### 6-metal layout (`-ms 6`)
-
-All 16 rows use the same 8-slot panel (6 metals + EDTA + Apo), repeated in quadruplicate across row-pairs:
-
-```
-Mn²⁺, Co²⁺, Ni²⁺, Cu²⁺, Nd³⁺, Dy³⁺, EDTA, Apo  (× 2 rows each side)
-```
-
-### Apo and EDTA controls
-
-- **Apo** — buff-only wells; sets the reference Tm used for all Kd calculations
-- **EDTA** — chelator control; expected to destabilize metal-loaded protein or show no shift for apo protein
+- **Hover text:** Raw Kd values with auto-scaled units (nM / µM / mM). -->
