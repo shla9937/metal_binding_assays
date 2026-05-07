@@ -108,7 +108,7 @@ def metal_setup(metal_set):
     # metal concentrations in µM
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488] 
     protein_conc = 5  # µM      
-    tm_threshold = 1.0
+    tm_threshold = 2.0
     r2_threshold = 0.7
     signal_threshold = 0.15
     return True
