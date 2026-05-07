@@ -36,12 +36,13 @@ def main():
     parser.add_argument('-m','--model',type=str,default='hill',choices=['hill','two-site','quadratic'],help="Binding model: 'hill' , 'two-site' , or 'quadratic'")
     parser.add_argument('-w','--exclude_wells',type=str,nargs='+',default=[],help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
     parser.add_argument('-ms','--metal_set',type=int,default=29,choices=[6, 29],help="Metal set being used in plate, either 29x1 or 6x4.")
+    parser.add_argument('-s', '--show_all',action='store_true',help="Show all figures interactively, including legend figures. By default only the first raw fluorescence figure and bar chart are shown.")
     args = parser.parse_args()
     
     metal_setup(args.metal_set)
     raw_dfs, avg_tm_df = load_data(args)
     titration_df, kd_results = analyze(avg_tm_df, args)
-    plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args)
+    plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args, show_all=args.show_all)
     save_results_csv(titration_df, kd_results, args.protein)
     save_command_txt(args.protein)
 
@@ -68,7 +69,7 @@ def load_data(args):
 def analyze(avg_tm_df, args):
     return find_kds(avg_tm_df,args.override,args.model,tm_threshold,r2_threshold,signal_threshold)
 
-def plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args):
+def plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args, show_all=False):
     snr_per_plate = [calc_snr(df) for df in raw_dfs]
     snr_df = pd.concat(snr_per_plate).groupby('Well Position')['SNR'].mean().reset_index()
 
@@ -83,11 +84,12 @@ def plot_all(raw_dfs, avg_tm_df, titration_df, kd_results, args):
         plate_apo_snr = apo_snr(raw_df, snr_per_plate[i])
         plate_snr_str = f"apo SNR median={plate_apo_snr.median():.1f}"
         rep_label = f"{args.protein} (rep {i+1})" if len(raw_dfs) > 1 else args.protein
-        plot_df(raw_df, 'Fluorescence', rep_label, snr_df=snr_df, snr_title=plate_snr_str, ylim=raw_ylim)
-    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein,error_column='Standard Error', override=args.override, snr_df=snr_df, snr_title=global_snr_str, kd_results=kd_results)
-    plot_tms(avg_tm_df, args.protein)
-    plot_kds(titration_df, kd_results, args.protein, model=args.model)
-    plot_kd_bars(titration_df, kd_results, args.protein, model=args.model)
+        show_this = (i == 0) or show_all  # always show first raw figure
+        plot_df(raw_df, 'Fluorescence', rep_label, snr_df=snr_df, snr_title=plate_snr_str, ylim=raw_ylim, show=show_this)
+    plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error', override=args.override, snr_df=snr_df, snr_title=global_snr_str, kd_results=kd_results, show=True)
+    plot_tms(avg_tm_df, args.protein, show=show_all)
+    plot_kds(titration_df, kd_results, args.protein, model=args.model, show=show_all)
+    plot_kd_bars(titration_df, kd_results, args.protein, model=args.model, show=True)
 
 def metal_setup(metal_set):
     global metals_left, metals_right, concentrations, protein_conc, tm_threshold, r2_threshold, signal_threshold
@@ -228,7 +230,7 @@ def get_atomic_number(metal_name):
     element = ''.join(c for c in metal_name if c.isalpha())
     return atomic_numbers.get(element, 999)
 
-def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df=None, snr_title=None, kd_results=None, ylim=None):    
+def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df=None, snr_title=None, kd_results=None, ylim=None, show=True):    
     # If error_column provided, use averaged data mode
     if error_column:
         unique_metals = sorted(df['Metal'].unique(), key=get_atomic_number)
@@ -335,7 +337,10 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
     plt.subplots_adjust(left=0.12)
     file_stem = protein_name.lower().replace(' ', '_').replace('(', '').replace(')', '')
     plt.savefig(f"{file_stem}_{y_column.lower().replace(' ', '_')}_melt_curves.pdf", bbox_inches='tight', backend='pdf')
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 def smooth_wells(df):
     """Apply Savitzky-Golay smoothing per well to raw fluorescence."""
@@ -396,10 +401,10 @@ def find_tms(df):
 
     return df
 
-def plot_tms(df, protein_name):
+def plot_tms(df, protein_name, show=True):
     fig, ax = plt.subplots(figsize=(3.3, 3.3))
     tm_data = df.groupby(['Metal', 'Concentration'])['Tm'].first().reset_index()
-    
+
     for metal in sorted(tm_data['Metal'].unique(), key=get_atomic_number):
         metal_df = tm_data[tm_data['Metal'] == metal].sort_values('Concentration')
         concentrations = metal_df['Concentration'].values
@@ -410,17 +415,30 @@ def plot_tms(df, protein_name):
         fit_line = np.poly1d(coeffs)
         conc_range = np.linspace(concentrations.min(), concentrations.max(), 100)
         ax.plot(conc_range, fit_line(conc_range), color=color, linestyle='-', linewidth=2, alpha=0.8)
-    
+
     ax.set_xlabel('Concentration (µM)', fontsize=10)
     ax.set_ylabel('Tm (°C)', fontsize=10)
     ax.set_title(f'{protein_name} - Tm vs Concentration', fontsize=10)
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), fontsize=6, ncol=6, frameon=True, borderaxespad=0)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     plt.tight_layout()
     protein_lower = protein_name.lower()
     plt.savefig(f'{protein_lower}_tm_vs_concentration.pdf', bbox_inches='tight', backend='pdf')
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig_leg, ax_leg = plt.subplots(figsize=(3.5, 4.5))
+    ax_leg.axis('off')
+    ax_leg.legend(handles, labels, fontsize=6, loc='center', ncol=2, frameon=True)
+    fig_leg.tight_layout()
+    fig_leg.savefig(f'{protein_lower}_tm_vs_concentration_legend.pdf', bbox_inches='tight', backend='pdf')
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 def binding_curve_hill(conc, kd, ymin, ymax, n):
     return ymin + (ymax - ymin) * conc**n / (kd**n + conc**n)
@@ -609,24 +627,22 @@ def eval_fit(model, conc_fit, popt):
           'two-site': binding_curve_two_site}[model]
     return fn(conc_fit, *popt)
 
-def plot_kds(df, kd_results, protein_name, model='hill'):
+def plot_kds(df, kd_results, protein_name, model='hill', show=True):
     has_override = 'Override Temperature' in df.columns
     plot_configs = [('Apo Tm', 'Apo Tm Temperature', 'Apo')]
     if has_override:
         plot_configs.append(('Override Tm', 'Override Temperature', 'Override'))
-    
-    n_plots = len(plot_configs)
-    fig, axes = plt.subplots(1, n_plots, figsize=(5.0 * n_plots, 3.3))
-    if n_plots == 1:
-        axes = [axes]
 
     conc_min = df[df['Concentration'] > 0]['Concentration'].min()
     conc_max = df['Concentration'].max()
     conc_fit = np.logspace(np.log10(conc_min), np.log10(conc_max), 200)
+    protein_lower = protein_name.lower()
 
-    for ax, (data_col, temp_col, kd_key) in zip(axes, plot_configs):
+    for data_col, temp_col, kd_key in plot_configs:
+        fig, ax = plt.subplots(figsize=(3.3, 3.3))
+
         temp_value = df[temp_col].iloc[0]
-        
+
         for metal in sorted(df['Metal'].unique(), key=get_atomic_number):
             metal_data = df[df['Metal'] == metal].sort_values('Concentration')
             concentrations = metal_data['Concentration'].values
@@ -644,26 +660,39 @@ def plot_kds(df, kd_results, protein_name, model='hill'):
             ax.errorbar(concentrations, values, yerr=errors, color=color, marker='o', linestyle='', capsize=3, alpha=0.7, markersize=6)
             if popt is not None:
                 ax.plot(conc_fit, eval_fit(model, conc_fit, popt), color=color,
-                       linestyle='-', linewidth=2, alpha=0.8, label=label)
+                        linestyle='-', linewidth=2, alpha=0.8, label=label)
             else:
                 ax.plot([], [], color=color, label=label)
-        
+
         ax.set_xlabel('Concentration (µM)', fontsize=10)
         ax.set_ylabel('% Folded', fontsize=10)
         title_name = 'Apo Tm' if kd_key == 'Apo' else 'Override Temp'
         ax.set_title(f'{protein_name} - Titration at {title_name} ({temp_value:.1f}°C)', fontsize=10)
         ax.set_xscale('log')
-        ax.set_ylim(0,1)
-        ax.legend(fontsize=6, loc='upper center', bbox_to_anchor=(0.5, -0.2), ncol=3, frameon=True, borderaxespad=0)
+        ax.set_ylim(0, 1)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-    
-    plt.tight_layout()
-    protein_lower = protein_name.lower()
-    plt.savefig(f'{protein_lower}_metal_titrations.pdf', bbox_inches='tight', backend='pdf')
-    plt.show()
 
-def plot_kd_bars(df, kd_results, protein_name, model):
+        plt.tight_layout()
+        suffix = '_override' if kd_key == 'Override' else ''
+        plt.savefig(f'{protein_lower}_metal_titrations{suffix}.pdf', bbox_inches='tight', backend='pdf')
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
+        handles, labels = ax.get_legend_handles_labels()
+        fig_leg, ax_leg = plt.subplots(figsize=(3.5, 4.5))
+        ax_leg.axis('off')
+        ax_leg.legend(handles, labels, fontsize=6, loc='center', ncol=2, frameon=True)
+        fig_leg.tight_layout()
+        fig_leg.savefig(f'{protein_lower}_metal_titrations{suffix}_legend.pdf', bbox_inches='tight', backend='pdf')
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
+def plot_kd_bars(df, kd_results, protein_name, model, show=True):
     has_override = 'Override Temperature' in df.columns
     if has_override:
         temp_value = df['Override Temperature'].iloc[0]
@@ -676,7 +705,7 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     all_metals = [m for m in kd_results_filtered['Metal'].unique() if m not in ['EDTA', 'Apo']]
     all_metals = sorted(all_metals, key=get_atomic_number)
     n_metals = len(all_metals)
-    bar_w_inch = 6.9 / 32  # width per bar at full 32-metal scale
+    bar_w_inch = 6.9 / 32 
     fig_w = max(1.5, min(6.9, n_metals * bar_w_inch))
     fig, ax = plt.subplots(figsize=(fig_w, 2.5))
     x_positions = np.arange(len(all_metals))
@@ -811,7 +840,10 @@ def plot_kd_bars(df, kd_results, protein_name, model):
     
     plt.tight_layout()
     plt.savefig(f'{protein_name.lower()}_kd_bar_chart.pdf', bbox_inches='tight', backend='pdf')
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 def calc_snr(df):
     """Per-well SNR on raw fluorescence: (peak - baseline_mean) / baseline_std.

@@ -185,6 +185,7 @@ The pipeline processes data in the following order:
 | `-o` | `--override` | Use this temperature (°C) as the analysis point instead of the Apo Tm. |
 | `-m` | `--model` | Binding model: `hill` (default), `two-site`, or `quadratic`. |
 | `-w` | `--exclude_wells` | Space-separated well positions to drop (e.g. `-w A1 B3`). |
+| `-s` | `--show_all` | Show all figures interactively. |
 
 ---
 
