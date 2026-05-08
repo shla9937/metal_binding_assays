@@ -714,18 +714,7 @@ def plot_kd_bars(df, kd_results, protein_name, model, show=True):
     if model == 'two-site':
         bar_width = 0.4
     
-    # Auto-scale ylim from actual Kd values so whitespace is minimised
-    _inv_kds = []
-    for _, _r in kd_results_filtered.iterrows():
-        for _col in (['Kd'] if model in ('hill', 'quadratic') else ['Kd1', 'Kd2']):
-            _k = _r.get(_col, np.nan)
-            if not np.isnan(_k) and _k > 0:
-                _inv_kds.append(1 / _k)
-    if _inv_kds:
-        ylim_top = 10 ** (np.ceil(np.log10(max(_inv_kds))) + 1)
-        ylim_bot = 10 ** (np.floor(np.log10(min(_inv_kds))) - 1)
-    else:
-        ylim_top, ylim_bot = 1e4, 1e-5
+    ylim_top, ylim_bot = 1000, 1e-3
     bar_bottom = ylim_bot * 0.5
     nb_label_y = ylim_bot * 1.5  # just inside the visible bottom for the NB text
     
