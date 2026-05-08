@@ -325,7 +325,7 @@ def plot_df(df, y_column, protein_name, error_column=None, override=None, snr_df
                 ax.plot(well_data['Temperature'], well_data[y_column], alpha=0.8, color=color)
 
             ax.tick_params(labelsize=5)
-            ax.set_title(f"{metal} - {row}", fontsize=6)
+            ax.set_title(f"{metal}", fontsize=6)
             ax.grid(True, alpha=0.3)
 
         fig.supxlabel('Temperature (°C)', fontsize=7)
