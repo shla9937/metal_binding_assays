@@ -66,27 +66,56 @@ def metal_setup(metal_set):
     pos_artifact_frac = 0.10
     return True
 
+def split_6metal_reps(df):
+    """Split a 6-metal quadruplicate 384-well plate into 4 replicate DataFrames.
+
+    Layout: each metal occupies 2 consecutive rows; columns 1-12 are the left
+    half-plate and 13-24 the right.  This gives 4 independent replicates:
+      rep 0 : first row of each metal pair, cols 1-12
+      rep 1 : second row of each metal pair, cols 1-12
+      rep 2 : first row of each metal pair, cols 13-24
+      rep 3 : second row of each metal pair, cols 13-24
+    """
+    rows_all = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
+    rep_dfs = []
+    for first_row, left_side in [(True, True), (False, True), (True, False), (False, False)]:
+        def sel(wp, _fr=first_row, _ls=left_side):
+            row_i = rows_all.index(wp[0])
+            col_num = int(wp[1:])
+            return (row_i % 2 == 0) == _fr and (col_num <= 12) == _ls
+        rep_dfs.append(df[df['Well Position'].apply(sel)].copy())
+    return rep_dfs
+
 def load_data(args):
     raw_dfs = []
     unfiltered_raw_dfs = []
     per_rep_tm_dfs = []
     norm_dfs_for_avg = []
 
-    for i, csv_file in enumerate(args.csv):
-        df = parse_csv_file(csv_file)
-        df = assign_conc(df)
+    if args.metal_set == 6:
+        df_full = parse_csv_file(args.csv[0])
+        df_full = assign_conc(df_full)
         if args.exclude_wells:
-            df = exclude_wells(df, args.exclude_wells)
+            df_full = exclude_wells(df_full, args.exclude_wells)
+        rep_frames = split_6metal_reps(df_full)
+    else:
+        rep_frames = []
+        for csv_file in args.csv:
+            df = parse_csv_file(csv_file)
+            df = assign_conc(df)
+            if args.exclude_wells:
+                df = exclude_wells(df, args.exclude_wells)
+            rep_frames.append(df)
+
+    for i, df in enumerate(rep_frames):
         unfiltered_raw_dfs.append(df.copy())
 
         if args.high_temp or args.low_temp:
-            # Manual bounds: apply globally
             if args.high_temp:
                 df = exclude_high_temps(df, args.high_temp)
             if args.low_temp:
                 df = exclude_low_temps(df, args.low_temp)
         else:
-            # Auto: trim each well to its own melt transition window
             df = trim_wells_per_well(df)
         raw_dfs.append(df)
 
@@ -206,7 +235,15 @@ def plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, per_rep_tm_dfs, titration_d
         plate_snr_str = f"apo SNR median={plate_apo_snr.median():.1f}"
         rep_label = f"{args.protein} (rep {i+1})" if len(raw_dfs) > 1 else args.protein
         show_this = (i == 0)
-        plot_df(unfiltered_df, 'Fluorescence', rep_label, snr_df=snr_df, snr_title=plate_snr_str, ylim=raw_ylim, show=show_this)
+        if args.metal_set != 6:  # 6-metal: single combined plot produced below
+            plot_df(unfiltered_df, 'Fluorescence', rep_label, snr_df=snr_df, snr_title=plate_snr_str, ylim=raw_ylim, show=show_this)
+
+    if args.metal_set == 6:
+        # All 4 replicates on one plate — combine into a single raw figure so
+        # every titration is visible in one panel per metal.
+        combined_unfilt = pd.concat(unfiltered_raw_dfs, ignore_index=True)
+        plot_df(combined_unfilt, 'Fluorescence', args.protein,
+                snr_df=snr_df, snr_title=global_snr_str, ylim=raw_ylim, show=True)
 
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error',
             override=args.override, snr_df=snr_df, snr_title=global_snr_str,
