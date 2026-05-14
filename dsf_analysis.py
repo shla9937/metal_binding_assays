@@ -911,7 +911,6 @@ def plot_kds_per_rep(per_rep_results, protein_name, model='hill', show=False):
         else:
             plt.close()
 
-
 def plot_kd_bars(titration_df_ref, kd_results_agg, protein_name, model, show=True):
     has_override = 'Override Temperature' in titration_df_ref.columns
     if has_override:
