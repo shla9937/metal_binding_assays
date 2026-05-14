@@ -41,12 +41,12 @@ def main():
     metal_setup(args.metal_set)
     raw_dfs, unfiltered_raw_dfs, avg_tm_df, per_rep_tm_dfs = load_data(args)
     titration_df_ref, kd_results_agg, per_rep_results = analyze(per_rep_tm_dfs, args)
-    plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, titration_df_ref, kd_results_agg, per_rep_results, args)
+    plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, per_rep_tm_dfs, titration_df_ref, kd_results_agg, per_rep_results, args)
     save_results_csv(titration_df_ref, kd_results_agg, per_rep_results, args.protein)
     save_command_txt(args.protein)
 
 def metal_setup(metal_set):
-    global metals_left, metals_right, concentrations, protein_conc, tm_threshold, r2_threshold, signal_threshold
+    global metals_left, metals_right, concentrations, protein_conc, tm_threshold, r2_threshold, signal_threshold, pos_artifact_frac
     if metal_set == 29:
         metals_left = ["Li⁺", "Cu²⁺", "Mg²⁺", "Zn²⁺", "K⁺", "Rb⁺", "Ca²⁺", "Sr²⁺",
                     "Sc³⁺", "Y³⁺", "Mn²⁺", "Cs⁺", "Co²⁺", "Ba²⁺", "Ni²⁺", "La³⁺"]
@@ -63,6 +63,7 @@ def metal_setup(metal_set):
     tm_threshold = 2.0
     r2_threshold = 0.9
     signal_threshold = 0.15
+    pos_artifact_frac = 0.10
     return True
 
 def load_data(args):
@@ -187,7 +188,7 @@ def aggregate_kds(per_rep_results, model):
 
     return pd.DataFrame(agg_rows)
 
-def plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, titration_df_ref, kd_results_agg, per_rep_results, args):
+def plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, per_rep_tm_dfs, titration_df_ref, kd_results_agg, per_rep_results, args):
     # SNR must be computed from unfiltered data so the pre-melt baseline is intact
     snr_per_plate = [calc_snr(df) for df in unfiltered_raw_dfs]
     snr_df = pd.concat(snr_per_plate).groupby('Well Position')['SNR'].mean().reset_index()
@@ -210,7 +211,14 @@ def plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, titration_df_ref, kd_result
     plot_df(avg_tm_df, 'Smoothed Fluorescence', args.protein, error_column='Standard Error',
             override=args.override, snr_df=snr_df, snr_title=global_snr_str,
             kd_results=kd_results_agg, show=True)
-    plot_tms(avg_tm_df, args.protein, show=False)
+
+    for i, rep_tm_df in enumerate(per_rep_tm_dfs):
+        rep_label = f"{args.protein} (rep {i+1})" if len(per_rep_tm_dfs) > 1 else args.protein
+        plate_snr_str = f"apo SNR median={apo_snr(unfiltered_raw_dfs[i], snr_per_plate[i]).median():.1f}"
+        plot_df(rep_tm_df, 'Smoothed Fluorescence', rep_label, error_column='Standard Error',
+                override=args.override, snr_title=plate_snr_str, show=(i == 0))
+
+    plot_tms(avg_tm_df, args.protein, per_rep_tm_dfs=per_rep_tm_dfs, show=False)
     plot_kds_per_rep(per_rep_results, args.protein, model=args.model, show=False)
     plot_kd_bars(titration_df_ref, kd_results_agg, args.protein, model=args.model, show=True)
 
@@ -237,50 +245,8 @@ def exclude_high_temps(df, exclude):
 def exclude_low_temps(df, exclude):
     return df[df['Temperature'] >= exclude]
 
-def auto_detect_temp_bounds(all_df, buffer_low=2.0, buffer_high=5.0, onset_frac=0.08):
-    # Kept for reference. Active path now uses trim_wells_per_well instead.
-    lower_bounds, upper_bounds = [], []
-    for _, well_data in all_df.groupby('Well'):
-        well_data = well_data.sort_values('Temperature')
-        temps = well_data['Temperature'].values
-        fluor = well_data['Fluorescence'].values
-        if 'Derivative' not in well_data.columns or len(temps) < 20:
-            continue
-        deriv_csv = well_data['Derivative'].values
-        wl = min(len(fluor), 51)
-        if wl % 2 == 0: wl -= 1
-        if wl < 5: continue
-        smooth_f = savgol_filter(fluor.astype(float), wl, 3)
-        smooth_d = -savgol_filter(deriv_csv.astype(float), wl, 3)
-        tm_idx = int(np.argmax(smooth_d))
-        peak_d = smooth_d[tm_idx]
-        if peak_d <= 0: continue
-        threshold = peak_d * onset_frac
-        lower_idx = 0
-        for j in range(tm_idx - 1, 0, -1):
-            if smooth_d[j] < threshold or smooth_f[j] > smooth_f[j + 1]:
-                lower_idx = j + 1; break
-        lower_bounds.append(temps[lower_idx])
-        upper_idx = len(temps) - 1
-        for j in range(tm_idx + 1, len(temps) - 1):
-            if smooth_f[j] < smooth_f[j - 1] or smooth_d[j] < threshold:
-                upper_idx = j - 1; break
-        upper_bounds.append(temps[upper_idx])
-    if not lower_bounds:
-        return None, None
-    return round(float(np.min(lower_bounds)) - buffer_low, 1), round(float(np.max(upper_bounds)) + buffer_high, 1)
-
-def trim_wells_per_well(df, onset_frac=0.08, buffer_low=2.0, buffer_high=5.0):
-    """
-    Trim each well independently to its own melt transition window.
-    Finds the Tm as the FIRST significant peak in the negated CSV Derivative
-    (not the maximum), so aggregation spikes at high temperature — which also
-    appear as large positive d(F)/dT values — cannot hijack the Tm detection.
-    Then walks outward from the Tm:
-      - Down: stop at melt onset (derivative < threshold) or pre-melt hump reversal.
-      - Up:   stop where fluorescence starts declining post-Tm, or derivative < threshold.
-    Each well is trimmed to [Tm_onset - buffer_low, Tm_end + buffer_high].
-    """
+def trim_wells_per_well(df, onset_frac=0.08):
+    global pos_artifact_frac
     parts = []
     for _, well_data in df.groupby('Well'):
         well_data = well_data.sort_values('Temperature')
@@ -299,41 +265,70 @@ def trim_wells_per_well(df, onset_frac=0.08, buffer_low=2.0, buffer_high=5.0):
             continue
 
         smooth_f = savgol_filter(fluor.astype(float), wl, 3)
+
+        # --- Step 1: pre-trim positive (upward) fluorescence spike at high T ---
+        artifact_end = len(temps)           # default: keep all
+
+        # Use RAW (unsmoothed) fluorescence steps so the spike is not washed out
+        # by the wide Savitzky-Golay window used for melt analysis.
+        # Threshold is relative to the robust raw fluorescence range (5th–95th pct)
+        # so the spike value itself cannot inflate the reference.
+        raw_steps = np.diff(fluor.astype(float))
+        f_range_robust = np.percentile(fluor, 95) - np.percentile(fluor, 5)
+        if f_range_robust > 0:
+            pos_thresh = pos_artifact_frac * f_range_robust
+            for k in range(len(raw_steps) - 1, -1, -1):   # walk from high-T end downward
+                if raw_steps[k] > pos_thresh:
+                    artifact_end = k + 1   # drop the spike and everything above
+                    break
+
+        temps     = temps[:artifact_end]
+        fluor     = fluor[:artifact_end]
+        deriv_csv = deriv_csv[:artifact_end]
+        well_data = well_data.iloc[:artifact_end]
+
+        if len(temps) < 20:
+            parts.append(well_data)
+            continue
+
+        # Recompute wl — trimming may have shortened fluor below the original window.
+        wl = min(len(fluor), 51)
+        if wl % 2 == 0:
+            wl -= 1
+        if wl < 5:
+            parts.append(well_data)
+            continue
+
+        smooth_f = savgol_filter(fluor.astype(float), wl, 3)
         smooth_d = -savgol_filter(deriv_csv.astype(float), wl, 3)  # negate: +ve at Tm
 
-        # Find the FIRST significant peak in the derivative.
-        # argmax would pick aggregation spikes at high T if they are larger than the melt.
-        # Using find_peaks then taking the earliest one above 15% of the global max
-        # ensures we always find the melt transition, not a later aggregation artifact.
+        # --- Step 2: find Tm as first significant derivative peak ---
         global_max = smooth_d.max()
         if global_max <= 0:
             parts.append(well_data)
             continue
         peaks, _ = find_peaks(smooth_d, height=global_max * 0.15, distance=5)
-        if len(peaks) == 0:
-            tm_idx = int(np.argmax(smooth_d))  # fallback
-        else:
-            tm_idx = int(peaks[0])  # first = melt; later peaks = aggregation
+        tm_idx = int(peaks[0]) if len(peaks) > 0 else int(np.argmax(smooth_d))
 
-        peak_d = smooth_d[tm_idx]
+        peak_d    = smooth_d[tm_idx]
         threshold = peak_d * onset_frac
 
-        # Walk down from Tm to melt onset / hump bottom
+        # --- Step 3: walk down to melt onset / hump bottom ---
         lower_idx = 0
         for j in range(tm_idx - 1, 0, -1):
             if smooth_d[j] < threshold or smooth_f[j] > smooth_f[j + 1]:
                 lower_idx = j + 1
                 break
 
-        # Walk up from Tm to post-melt decline / plateau
+        # --- Step 4: walk up to post-melt decline / plateau ---
         upper_idx = len(temps) - 1
         for j in range(tm_idx + 1, len(temps) - 1):
             if smooth_f[j] < smooth_f[j - 1] or smooth_d[j] < threshold:
                 upper_idx = j - 1
                 break
 
-        low  = temps[lower_idx] - buffer_low
-        high = temps[upper_idx] + buffer_high
+        low  = temps[lower_idx]
+        high = temps[upper_idx]
         parts.append(well_data[(well_data['Temperature'] >= low) & (well_data['Temperature'] <= high)])
 
     return pd.concat(parts, ignore_index=True)
@@ -565,9 +560,20 @@ def find_tms(df):
 
     return df
 
-def plot_tms(df, protein_name, show=True):
+def plot_tms(df, protein_name, per_rep_tm_dfs=None, show=True):
     fig, ax = plt.subplots(figsize=(3.3, 3.3))
     tm_data = df.groupby(['Metal', 'Concentration'])['Tm'].first().reset_index()
+
+    # Build per-replicate Tm table for SEM error bars
+    tm_sem = None
+    if per_rep_tm_dfs and len(per_rep_tm_dfs) > 1:
+        rep_tms = pd.concat(
+            [r.groupby(['Metal', 'Concentration'])['Tm'].first().rename(f'Tm_rep{i}')
+             for i, r in enumerate(per_rep_tm_dfs)],
+            axis=1)
+        tm_sem = rep_tms.sem(axis=1).reset_index().rename(columns={0: 'Tm_sem'})
+        tm_sem.columns = ['Metal', 'Concentration', 'Tm_sem']
+        tm_data = tm_data.merge(tm_sem, on=['Metal', 'Concentration'], how='left')
 
     handles, labels = [], []
     for metal in sorted(tm_data['Metal'].unique(), key=get_atomic_number):
@@ -575,16 +581,22 @@ def plot_tms(df, protein_name, show=True):
         concentrations = metal_df['Concentration'].values
         tms = metal_df['Tm'].values
         color = metal_colors[metal]
-        sc = ax.scatter(concentrations, tms, color=color, s=16, alpha=0.7)
+        if tm_sem is not None and 'Tm_sem' in metal_df.columns:
+            sems = metal_df['Tm_sem'].values
+            sc = ax.errorbar(concentrations, tms, yerr=sems, fmt='o', color=color,
+                             markersize=3, alpha=0.7, linewidth=0, elinewidth=0.8, capsize=2)
+        else:
+            sc = ax.scatter(concentrations, tms, color=color, s=16, alpha=0.7)
         coeffs = np.polyfit(concentrations, tms, 1)
         fit_line = np.poly1d(coeffs)
-        conc_range = np.linspace(concentrations.min(), concentrations.max(), 100)
+        conc_range = np.logspace(np.log10(concentrations.min()), np.log10(concentrations.max()), 100)
         ax.plot(conc_range, fit_line(conc_range), color=color, linestyle='-', linewidth=1.5, alpha=0.8)
         handles.append(sc)
         labels.append(metal)
 
     ax.set_xlabel('Concentration (µM)', fontsize=9)
     ax.set_ylabel('Tm (°C)', fontsize=9)
+    ax.set_xscale('log')
     ax.set_title(f'{protein_name} - Tm vs Concentration', fontsize=8)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -595,7 +607,7 @@ def plot_tms(df, protein_name, show=True):
                bbox_to_anchor=(0.5, 0), bbox_transform=fig.transFigure)
     plt.tight_layout(rect=[0, 0.14, 1, 1])
     protein_lower = protein_name.lower()
-    plt.savefig(f'{protein_lower}_tm_vs_concentration.pdf', bbox_inches='tight', backend='pdf')
+    plt.savefig(f'{protein_lower}_melting_temps.pdf', bbox_inches='tight', backend='pdf')
     if show:
         plt.show()
     else:
