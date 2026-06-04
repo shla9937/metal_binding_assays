@@ -35,7 +35,8 @@ def main():
     parser.add_argument('-o','--override',type=float,required=False,help="Override analysis temperature")
     parser.add_argument('-m','--model',type=str,default='hill',choices=['hill','two-site','quadratic'],help="Binding model: 'hill' , 'two-site' , or 'quadratic'")
     parser.add_argument('-w','--exclude_wells',type=str,nargs='+',default=[],help="Well positions to exclude from analysis (e.g. A1 B3 C12)")
-    parser.add_argument('-ms','--metal_set',type=int,default=29,choices=[6, 29],help="Metal set being used in plate, either 29x1 or 6x4.")
+    parser.add_argument('-ms','--metal_set',type=int,default=29,choices=[6, 29, 62],help="Metal set being used in plate, either 29x1 or 6x4.")
+    parser.add_argument('-a', '--auto',action='store_true',default=False,help="Automatically trim temperature range per well (trim_wells_per_well); disabled by default")
     args = parser.parse_args()
 
     metal_setup(args.metal_set)
@@ -57,6 +58,11 @@ def metal_setup(metal_set):
                    "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
         metals_right = ["Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
                    "Nd³⁺", "Nd³⁺", "Dy³⁺", "Dy³⁺", "EDTA", "EDTA", "Apo", "Apo"]
+    elif metal_set == 62:
+        metals_left = ["Ca²⁺", "Ca²⁺", "Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
+                    "Zn²⁺", "Zn²⁺", "EDTA", "EDTA", "Apo", "Apo"]
+        metals_right = ["Ca²⁺", "Ca²⁺", "Mn²⁺", "Mn²⁺", "Co²⁺", "Co²⁺", "Ni²⁺", "Ni²⁺", "Cu²⁺", "Cu²⁺",
+                    "Zn²⁺", "Zn²⁺", "EDTA", "EDTA", "Apo", "Apo"]
 
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     protein_conc = 5
@@ -115,7 +121,7 @@ def load_data(args):
                 df = exclude_high_temps(df, args.high_temp)
             if args.low_temp:
                 df = exclude_low_temps(df, args.low_temp)
-        else:
+        elif args.auto:
             df = trim_wells_per_well(df)
         raw_dfs.append(df)
 
