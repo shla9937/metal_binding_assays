@@ -66,9 +66,9 @@ def metal_setup(metal_set):
 
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     protein_conc = 5
-    tm_threshold = 2.0
-    r2_threshold = 0.9
-    signal_threshold = 0.15
+    tm_threshold = 1.0
+    r2_threshold = 0.5
+    signal_threshold = 0.01
     pos_artifact_frac = 0.10
     return True
 
@@ -98,7 +98,7 @@ def load_data(args):
     per_rep_tm_dfs = []
     norm_dfs_for_avg = []
 
-    if args.metal_set == 6:
+    if args.metal_set in (6, 62):
         df_full = parse_csv_file(args.csv[0])
         df_full = assign_conc(df_full)
         if args.exclude_wells:
