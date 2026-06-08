@@ -241,10 +241,10 @@ def plot_all(raw_dfs, unfiltered_raw_dfs, avg_tm_df, per_rep_tm_dfs, titration_d
         plate_snr_str = f"apo SNR median={plate_apo_snr.median():.1f}"
         rep_label = f"{args.protein} (rep {i+1})" if len(raw_dfs) > 1 else args.protein
         show_this = (i == 0)
-        if args.metal_set != 6:  # 6-metal: single combined plot produced below
+        if args.metal_set not in (6, 62):  # split-plate sets: single combined plot produced below
             plot_df(unfiltered_df, 'Fluorescence', rep_label, snr_df=snr_df, snr_title=plate_snr_str, ylim=raw_ylim, show=show_this)
 
-    if args.metal_set == 6:
+    if args.metal_set in (6, 62):
         # All 4 replicates on one plate — combine into a single raw figure so
         # every titration is visible in one panel per metal.
         combined_unfilt = pd.concat(unfiltered_raw_dfs, ignore_index=True)
