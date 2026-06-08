@@ -67,7 +67,7 @@ def metal_setup(metal_set):
     concentrations = [100, 50.0, 25.0, 12.5, 6.25, 3.13, 1.56, 0.781, 0.391, 0.195, 0.0977, 0.0488]
     protein_conc = 5
     tm_threshold = 1.0
-    r2_threshold = 0.5
+    r2_threshold = 0.1
     signal_threshold = 0.01
     pos_artifact_frac = 0.10
     return True
@@ -363,12 +363,21 @@ def trim_wells_per_well(df, onset_frac=0.08):
                 lower_idx = j + 1
                 break
 
-        # --- Step 4: walk up to post-melt decline / plateau ---
+        # --- Step 4: walk up the right side of the first derivative peak ---
+        # Search only up to the second peak (if any) to exclude secondary transitions.
         upper_idx = len(temps) - 1
-        for j in range(tm_idx + 1, len(temps) - 1):
-            if smooth_f[j] < smooth_f[j - 1] or smooth_d[j] < threshold:
+        search_end = int(peaks[1]) if len(peaks) > 1 else len(temps) - 1
+        for j in range(tm_idx + 1, search_end):
+            if smooth_d[j] < threshold:
                 upper_idx = j - 1
                 break
+        else:
+            # Derivative stayed above threshold through the search range;
+            # use the valley before the second peak (if present) as the hard cap.
+            if len(peaks) > 1:
+                second_peak_idx = int(peaks[1])
+                valley_rel = int(np.argmin(smooth_d[tm_idx:second_peak_idx]))
+                upper_idx = tm_idx + valley_rel
 
         low  = temps[lower_idx]
         high = temps[upper_idx]
