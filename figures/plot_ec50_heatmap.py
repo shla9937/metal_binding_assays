@@ -108,6 +108,7 @@ def main() -> None:
         split_panels=args.split_panels, panel_width_mm=args.panel_width,
         cmap_name=args.cmap, title=args.title,
         vmin_display=args.vmin, vmax_display=args.vmax,
+        cell_mm=args.cell_mm,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -129,6 +130,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hatch-by-error", action="store_true", help="Overlay diagonal hatching whose density grows with the relative error (CV) of each cell")
     p.add_argument("--split-panels", type=int, default=1,help="Split metal columns evenly across N side-by-side panels (default 2, so ~30 metals -> two column-width panels)")
     p.add_argument("--panel-width", type=float, default=178.0, metavar="MM",help="Max width per panel in mm (default 89 = Nature single column)")
+    p.add_argument("--cell-mm", type=float, default=None, metavar="MM",
+                   help="Force cell edge to this size (mm). Overrides the auto-fit "
+                        "based on --panel-width so heatmaps across figures can share a cell size.")
     p.add_argument("--cmap", default="nd_purple_r", help="Matplotlib colormap name (default nd_purple_r: dark purple -> white, tighter binding = darker). Append _r to any built-in cmap to reverse it.")
     p.add_argument("--vmin", type=float, default=1e-6, help="Lower color bound in --display-unit (default 1e-6 = 1 µM in M). Values below clamp to the darkest color.")
     p.add_argument("--vmax", type=float, default=1e-3, help="Upper color bound in --display-unit (default 1e-3 = 1 mM in M). Values above clamp to white.")
@@ -215,6 +219,7 @@ def plot(
     split_panels: int = 2, panel_width_mm: float = 89.0,
     cmap_name: str = "nd_purple_r", title: str | None = None,
     vmin_display: float | None = None, vmax_display: float | None = None,
+    cell_mm: float | None = None,
 ) -> tuple[plt.Figure, list[plt.Axes]]:
     n_rows, n_cols = mean.shape
     split_panels = max(1, min(split_panels, n_cols))
@@ -248,12 +253,16 @@ def plot(
     norm = LogNorm(vmin=vmin, vmax=vmax, clip=True)
     hatch_edges = _hatch_edges(disp, disp_err) if hatch_by_error else None
 
-    # Sizing: pick a cell edge so each panel fits within panel_width_mm.
+    # Sizing: pick a cell edge so each panel fits within panel_width_mm,
+    # unless the caller pins cell_mm to match a sibling figure.
     panel_in = panel_width_mm / 25.4
     label_pad_in = 0.50   # room on the far left for protein tick labels
     inter_pad_in = 0.10   # gap between adjacent panels
     cbar_pad_in = 0.30    # room reserved for the (compact) shared colorbar
-    cell_in = min(0.28, max(0.10, (panel_in - 0.10) / per_max))
+    if cell_mm is not None:
+        cell_in = cell_mm / 25.4
+    else:
+        cell_in = min(0.28, max(0.10, (panel_in - 0.10) / per_max))
     panel_w_in = cell_in * per_max
     fig_w_in = (
         label_pad_in

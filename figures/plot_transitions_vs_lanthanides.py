@@ -60,7 +60,9 @@ def main() -> None:
     configure_nature_style()
     df = load_table(args.input)
     stats = summarize(df)
-    fig, ax = plot(stats, threshold=args.threshold)
+    fig, ax = plot(stats, threshold=args.threshold,
+                   panel_w_in=args.panel_w_mm / 25.4,
+                   panel_h_in=args.panel_h_mm / 25.4)
     if args.output:
         fig.savefig(args.output, dpi=600, bbox_inches="tight")
         print(f"Saved figure to {args.output}")
@@ -83,6 +85,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--heatmap-output", type=Path, default=None,
                    help="Path to save the per-metal heatmap. Defaults to <output stem>_heatmap<ext> when --output is set.")
     p.add_argument("-t", "--threshold", type=float, default=0.83, help="Fractional lanthanide-selectivity threshold for a hit (default 0.83)",)
+    p.add_argument("--panel-w-mm", type=float, default=89.0,
+                   help="Scatter panel width in mm (default 89 = Nature single column).")
+    p.add_argument("--panel-h-mm", type=float, default=89.0,
+                   help="Scatter panel height in mm (default 89).")
     p.add_argument("--show", action="store_true", help="Show the plot window")
     return p.parse_args()
 
@@ -120,8 +126,10 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
     return stats.reset_index()
 
 
-def plot(stats: pd.DataFrame, threshold: float) -> tuple[plt.Figure, plt.Axes]:
-    fig, ax = plt.subplots(figsize=(PANEL_IN, PANEL_IN))
+def plot(stats: pd.DataFrame, threshold: float,
+         panel_w_in: float = PANEL_IN,
+         panel_h_in: float = PANEL_IN) -> tuple[plt.Figure, plt.Axes]:
+    fig, ax = plt.subplots(figsize=(panel_w_in, panel_h_in))
 
     _, caps, _ = ax.errorbar(
         stats["transitions_mean"], stats["lanthanides_mean"],

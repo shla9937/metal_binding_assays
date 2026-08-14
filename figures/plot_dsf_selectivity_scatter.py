@@ -100,7 +100,9 @@ def main() -> None:
         stats.to_csv(args.stats_output, index=False)
         print(f"Saved stats table to {args.stats_output}")
     fig, _ = plot(stats, threshold=args.threshold,
-                  display_unit=args.display_unit, ceiling=ceiling)
+                  display_unit=args.display_unit, ceiling=ceiling,
+                  panel_w_in=args.panel_w_mm / 25.4,
+                  panel_h_in=args.panel_h_mm / 25.4)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(args.output, dpi=600, bbox_inches="tight")
@@ -133,6 +135,10 @@ def parse_args() -> argparse.Namespace:
                         "well above any realistic DSF titration).")
     p.add_argument("--s-fold", type=float, nargs="+", default=[10.0, 100.0],
                    help="Fold thresholds for kinome-style S(x) scores (default: 10 100).")
+    p.add_argument("--panel-w-mm", type=float, default=89.0,
+                   help="Panel width in mm (default 89 = Nature single column).")
+    p.add_argument("--panel-h-mm", type=float, default=89.0,
+                   help="Panel height in mm (default 89).")
     p.add_argument("--show", action="store_true", help="Show the plot window")
     return p.parse_args()
 
@@ -400,8 +406,23 @@ def _print_table(stats: pd.DataFrame, display_unit: str,
 
 
 def plot(stats: pd.DataFrame, threshold: float,
-         display_unit: str, ceiling: float) -> tuple[plt.Figure, plt.Axes]:
-    fig, ax = plt.subplots(figsize=(PANEL_IN, PANEL_IN))
+         display_unit: str, ceiling: float,
+         panel_w_in: float = PANEL_IN,
+         panel_h_in: float = PANEL_IN) -> tuple[plt.Figure, plt.Axes]:
+    # Sized so `panel_w_in x panel_h_in` is the axes rectangle, not the whole
+    # canvas: labels/title/legend live in the outer padding, so the panel keeps
+    # its physical size regardless of legend length.
+    left_in, bottom_in = 0.55, 0.45
+    top_in, right_in = 0.30, 1.35
+    fig_w_in = left_in + panel_w_in + right_in
+    fig_h_in = bottom_in + panel_h_in + top_in
+    fig = plt.figure(figsize=(fig_w_in, fig_h_in))
+    ax = fig.add_axes([
+        left_in / fig_w_in,
+        bottom_in / fig_h_in,
+        panel_w_in / fig_w_in,
+        panel_h_in / fig_h_in,
+    ])
     ax.set_xscale("log")
     ax.set_yscale("log")
 
@@ -487,13 +508,13 @@ def plot(stats: pd.DataFrame, threshold: float,
     ax.set_xlabel(f"Tobit composite REE EC50 ({display_unit})")
     ax.set_ylabel(f"Tobit composite non-REE EC50 ({display_unit})")
     ax.set_title("REE selectivity of Ped cluster (DSF)")
-    ax.legend(loc="lower right", frameon=False, handlelength=1.5,
-              borderaxespad=0.2, handletextpad=0.4,
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0),
+              frameon=False, handlelength=1.5,
+              borderaxespad=0.0, handletextpad=0.4,
               title=f"censored at EC50 = {ceiling:.0f} {display_unit}",
               title_fontsize=6)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    fig.tight_layout(pad=0.2)
     return fig, ax
 
 
